@@ -9,10 +9,11 @@ int main(int argc, const char* argv[]) {
   int constant = addConstant(&chunk, 1.2);
   // Write first instruction: constant                  
   writeChunk(&chunk, OP_CONSTANT, 222);        
+  // constant的操作数最多只存一个字节，因此最多能保存256(0 - 255)个constant
   writeChunk(&chunk, constant, 222);
-  constant = addConstant(&chunk, 2.35);
-  writeChunk(&chunk, OP_CONSTANT, 223);        
-  writeChunk(&chunk, constant, 223);
+
+  // writeConstant
+  writeConstant(&chunk, 12355.3332, 223);
 
   writeChunk(&chunk, OP_RETURN, 224);
 

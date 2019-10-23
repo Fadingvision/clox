@@ -1,0 +1,204 @@
+// expression statements
+1 + 1;
+
+// print(statement)s
+print("123");
+print(1 + 1);
+print(true);
+
+// var statements
+var a = "global a";
+var b = "global b";
+var c = "global c";
+
+// block statements
+{
+  var a = "outer a";
+  var b = "outer b";
+  {
+    var a = "inner a";
+    a = "inner aa";
+    print(a);
+    print(b);
+    print(c);
+  }
+  a = "outer aa";
+  c = "global cc";
+  print(a);
+  print(b);
+  print(c);
+}
+print(a);
+print(b);
+print(c);
+
+/* 
+  What did you expect it to do? Is it what you think it should do? 
+  What does analogous code in other languages you are familiar with do? 
+  What do you think users will expect this to do?
+*/
+
+var a = 1;
+{
+  // FIXME: Cannot read local variable in its own initializer.
+  // var a = a + 2;
+  print(a);
+}
+
+// for, while, and, or, if
+var a = 0;
+var b = 1;
+
+while (a >= 0 and a < 10) {
+  if (a > 5) {
+    print(a);
+  }
+  a = a + 1;
+}
+
+for (var i = 0; i < 5; i = i + 1) {
+  print(i);
+}
+
+// native function
+print(clock());
+print(clock);
+
+// normal function
+fun sayHi(first, last) {
+  print("Hi, " + first + " " + last + "!");
+}
+
+print(sayHi);
+sayHi("Dear", "Reader");
+
+
+// function with return 
+fun fibonacci(n) {
+  if (n <= 1) return n;
+  return fibonacci(n - 2) + fibonacci(n - 1);
+}
+
+for (var i = 0; i < 20; i = i + 1) {
+  print(fibonacci(i));
+}
+
+
+// function with closure
+fun makeCounter() {
+  var i = 0;
+  fun count() {
+    i = i + 1;
+    print(i);
+  }
+
+  return count;
+}
+
+var counter = makeCounter();
+counter(); // "1".
+counter(); // "2".
+
+
+// anonymous function
+fun thrice(fn) {
+  for (var i = 1; i <= 3; i = i + 1) {
+    fn(i);
+  }
+}
+
+thrice(fun (a) {
+  print(a);
+});
+// "1".
+// "2".
+// "3".
+
+/* is this program valid? */
+/* 
+  Most of static typed language like go disallow it.
+  I think latter approach is better.
+*/
+fun scope(a) {
+  // FIXME: with reslover, we can detect redeclared in local block
+  // var a = "local";
+  print(a);
+}
+
+scope("global"); // "local"
+
+/* closures trap, which is our resolver works on */
+
+
+var a = "global";
+{
+  fun showA() {
+    print(a);
+  }
+  // FIXME: we alao can detect Illegal return statement
+  // return;
+  
+  showA(); // global
+  var a = "block";
+  // Before our resolver shows, it prints "block",
+  // In other languages with closures, this should be "global"
+  // Javascript have var-hoist, so it may be different.
+  showA();
+}
+
+// class
+
+// lox class method is `bound methods`, which method's this reference will always be their instance
+class Cake {
+  taste() {
+    var adjective = "delicious";
+    print("The " + this.flavor + " cake is " + adjective + "!");
+  }
+}
+
+var cake = Cake();
+cake.flavor = "German chocolate";
+cake.taste(); // Prints "The German chocolate cake is delicious!".
+
+
+// static and init function
+class Foo {
+  static add(a, b) {
+    return a + b;
+  }
+
+  init(a, b) {
+    this.a = a;
+    this.b = b;
+  }
+}
+print(Foo.add(1, 2)); // Prints "3").
+var foo = Foo(123, 456);
+print(foo.a); // Prints "123").
+print(foo.b); // Prints "456").
+// we can call init on our own
+print(foo.init(222, 333)); // Prints "<classInstance Foo").
+print(foo.a); // Prints "222").
+print(foo.b); // Prints "333").
+
+
+// extends and super identifier
+class A {
+  method() {
+    print("A method");
+  }
+}
+
+class B < A {
+  method() {
+    print("B method");
+  }
+
+  test() {
+    super.method();
+  }
+}
+
+class C < B {}
+
+C().test(); // Prints "A method"
