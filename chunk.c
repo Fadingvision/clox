@@ -12,7 +12,7 @@ void initChunk(Chunk* chunk) {
   initValueArray(&chunk->constants);
 }
 
-void writeChunk(Chunk* chunk, uint8_t byte, int line) {     
+void writeChunk(Chunk* chunk, uint8_t byte, int line) { 
   if (chunk->capacity < chunk->count + 1) {
     int oldCapacity = chunk->capacity;    
     chunk->capacity = GROW_CAPACITY(oldCapacity); 
@@ -56,7 +56,7 @@ void writeConstant(Chunk* chunk, Value value, int line) {
         oldCapacity, chunk->capacity);
     }
 
-    // 如何在连续内存（count -> count + 2）上写入 256？
+    // 在连续内存（count -> count + 2）上写入 256？
     // chunk->code[chunk->count] = index;
     chunk->code[chunk->count] = index & 0xff;
     chunk->code[chunk->count + 1] = (index>>8)  & 0xff;

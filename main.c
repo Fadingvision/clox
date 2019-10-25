@@ -1,9 +1,11 @@
 #include "common.h"
 #include "chunk.h"
+#include "vm.h"
 #include "debug.h"
 
 int main(int argc, const char* argv[]) {
-  Chunk chunk;                          
+  Chunk chunk;
+  initVM();                   
   initChunk(&chunk);
 
   int constant = addConstant(&chunk, 1.2);
@@ -13,12 +15,21 @@ int main(int argc, const char* argv[]) {
   writeChunk(&chunk, constant, 222);
 
   // writeConstant
-  writeConstant(&chunk, 12355.3332, 223);
+  writeConstant(&chunk, 3.4, 222);
+  writeChunk(&chunk, OP_ADD, 222);
+
+  writeConstant(&chunk, 5.6, 222);
+  writeChunk(&chunk, OP_DIVIDE, 222);
+
+  writeChunk(&chunk, OP_NEGATE, 224);
 
   writeChunk(&chunk, OP_RETURN, 224);
+  // disassembleChunk(&chunk, "test chunk");
 
-  disassembleChunk(&chunk, "test chunk");
+  // executing instructions
+  interpret(&chunk);
 
+  freeVM();
   freeChunk(&chunk);
   return 0;
 }
