@@ -2,6 +2,7 @@
 
 #include "common.h"
 #include "debug.h"
+#include "compiler.h"
 #include "vm.h"
 
 // 基于栈的虚拟机
@@ -70,10 +71,12 @@ void initVM() {
 
 void freeVM() {}
 
-InterpretResult interpret(Chunk *chunk) {
-  vm.chunk = chunk;
-  vm.ip = vm.chunk->code;
-  return run();
+InterpretResult interpret(const char* source) {
+  compile(source);
+  // vm.chunk = chunk;
+  // vm.ip = vm.chunk->code;
+  // return run();
+  return INTERPRET_OK;
 }
 
 void push(Value value) {
