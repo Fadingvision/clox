@@ -178,8 +178,10 @@ static void number() {
 // 一元表达式
 static void unary() {
   TokenType operatorType = parser.previous.type;
+  // 优先写入比一元表达式更高优先级的表达式或同级的表达式，一元表达式可以嵌套：(--4)
   parsePrecedence(PREC_UNARY);
 
+  // 然后写入一元表达式
   switch (operatorType) {
     case TOKEN_BANG: emitByte(OP_NOT); break;
     case TOKEN_MINUS: emitByte(OP_NEGATE); break;
@@ -193,6 +195,7 @@ static void binary() {
   TokenType operatorType = parser.previous.type;
 
   ParseRule* rule = getRule(operatorType);
+  // 优先写入比当前二元表达式更高的优先级的表达式
   parsePrecedence((Precedence)(rule->precedence + 1));
 
   switch (operatorType) {
@@ -213,6 +216,7 @@ static void binary() {
 
 // -------------------- Pratt Parser -------------------------
 
+// 每种类型对应的解析规则表：
 ParseRule rules[] = {
 /* Compiling Expressions rules < Calls and Functions infix-left-paren
   { grouping, NULL,    PREC_NONE },       // TOKEN_LEFT_PAREN
@@ -332,6 +336,7 @@ ParseRule rules[] = {
 
 // 表达式
 static void expression() {
+  // 从优先级最低的开始
   parsePrecedence(PREC_ASSIGNMENT);
 }
 
@@ -343,12 +348,41 @@ static ParseRule* getRule(TokenType type) {
 /* 
   how `(-1 + 2) * 3 - -4` works:
 
-  
-
+  parsePrecedence(PREC_ASSIGNMENT)
+  ( => prefix => grouping
+    parsePrecedence(PREC_ASSIGNMENT)
+    - => unary
+      parsePrecedence(PREC_UNARY);
+      1 => number; // 写入CONSTANT: 1
+      +号的优先级PREC_TERM低于PREC_UNARY: 退出
+      => // 写入NEGATE指令
+    +的优先级大于PREC_ASSIGNMENT => infixRule => binary
+      parsePrecedence(PREC_FACTOR);
+      2 => number; // 写入CONSTANT: 2
+      )号的优先级PREC_NONE低于PREC_FACTOR: 退出
+      => // 写入ADD
+    => )号的优先级PREC_NONE低于PREC_ASSIGNMENT: 退出
+  * => infix => binary
+    parsePrecedence(PREC_UNARY);
+    3 => number; // 写入CONSTANT: 3
+    PREC_TERM低于PREC_UNARY: 退出
+    => // 写入OP_MULTIPLY
+  - => infix => binary
+    parsePrecedence(PREC_UNARY);
+      - => unary
+      parsePrecedence(PREC_UNARY);
+        4 => number; // 写入CONSTANT: 4
+        PREC_NONE低于PREC_UNARY: 退出
+      => // 写入NEGATE指令
+    4 => number; // 写入CONSTANT: 4
+    EOF号的优先级PREC_NONE低于PREC_UNARY: 退出
+  => // 写入OP_SUBTRACT
+  EOF号的优先级PREC_NONE低于PREC_UNARY: 退出
 */
 static void parsePrecedence(Precedence precedence) {
+  printf("%4d\n", precedence);
   advance();
-  // 前缀表达式规则: -, !, number, left paren
+  // 前缀表达式规则: number, grouping, unary
   ParseFn prefixRule = getRule(parser.previous.type)->prefix;
   if (prefixRule == NULL) {
     error("Expect expression.");
@@ -357,6 +391,8 @@ static void parsePrecedence(Precedence precedence) {
 
   // 解析对应的表达式
   prefixRule();
+
+  // 依次解析后面的优先级高于当前优先级的表达式
   while (precedence <= getRule(parser.current.type)->precedence) {
     advance();
     ParseFn infixRule = getRule(parser.previous.type)->infix;
