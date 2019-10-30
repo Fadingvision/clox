@@ -64,9 +64,6 @@ static void runFile(const char* path) {
 
 
 int main(int argc, const char* argv[]) {
-  // Chunk chunk;
-  // initChunk(&chunk);
-
   initVM();
   if (argc == 1) {
     repl();
@@ -97,10 +94,5 @@ int main(int argc, const char* argv[]) {
   // writeChunk(&chunk, OP_SUBTRACT, 224);
 
   // writeChunk(&chunk, OP_RETURN, 224);
-
-  // executing instructions
-  // interpret(&chunk);
-  // freeChunk(&chunk);
-
   return 0;
 }
