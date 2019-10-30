@@ -33,7 +33,6 @@ typedef struct {
   Precedence precedence;
 } ParseRule;
 
-
 // Parser 执行one-pass策略，一次循环中编译
 typedef struct {
   Token current;  // 下一个token
@@ -45,32 +44,9 @@ typedef struct {
 // 创建一个全局变量，以免传来传去
 Parser parser;
 
-// ---------------------------------------------
+// -------------------- token方法 -------------------------
 
-// 消费任意的一个不为error的token
-static void advance() {
-  // 保存之前的一个token
-  parser.previous = parser.current;
-
-  for (;;) {
-    parser.current = scanToken();
-    if (parser.current.type != TOKEN_ERROR) break;
-
-    // 如果是error token，则报错, start 则是message
-    errorAtCurrent(parser.current.start);
-  }
-}
-
-// 消费指定类型的token一个，用于前瞻
-static void consume(TokenType type, const char* message) {
-  if (parser.current.type == type) {
-    advance();
-    return;
-  }
-
-  errorAtCurrent(message);
-}
-
+// 打印错误信息
 static void errorAt(Token* token, const char* message) {
   if (parser.panicMode) return;
   parser.panicMode = true;
@@ -102,11 +78,35 @@ static void errorAtCurrent(const char* message) {
   errorAt(&parser.current, message);
 }
 
-// ---------------------------------------------
+// 消费任意的一个不为error的token
+static void advance() {
+  // 保存之前的一个token
+  parser.previous = parser.current;
 
-Chunk* compilingChunk;
+  for (;;) {
+    parser.current = scanToken();
+    if (parser.current.type != TOKEN_ERROR) break;
+
+    // 如果是error token，则报错, start 则是message
+    errorAtCurrent(parser.current.start);
+  }
+}
+
+// 消费指定类型的token一个，用于前瞻
+static void consume(TokenType type, const char* message) {
+  if (parser.current.type == type) {
+    advance();
+    return;
+  }
+
+  errorAtCurrent(message);
+}
+
+// --------------------  字节码写入方法  -------------------------
 
 // 当前正在写入的chunk
+Chunk* compilingChunk;
+
 static Chunk* currentChunk() {
   return compilingChunk;
 }
@@ -122,26 +122,9 @@ static void emitBytes(uint8_t byte1, uint8_t byte2) {
   emitByte(byte2);
 }
 
-// 暂时用return指令来结束编译
-static void endCompiler() {
-  emitReturn();
-
-// 打印当前指令集，验证编译正确性
-#ifdef DEBUG_PRINT_CODE
-  if (!parser.hadError) {
-    disassembleChunk(currentChunk(), "code");
-  }
-#endif
-}
-
+// return 指令
 static void emitReturn() {
   emitByte(OP_RETURN);
-}
-
-// ---------------------------------------------
-
-static void expression() {
-  parsePrecedence(PREC_ASSIGNMENT);
 }
 
 // 写一个constant的double值到chunk的constants数组中，返回index
@@ -160,20 +143,40 @@ static void emitConstant(Value value) {
   emitBytes(OP_CONSTANT, makeConstant(value));
 }
 
+// 暂时用return指令来结束编译
+static void endCompiler() {
+  emitReturn();
+
+// 打印当前指令集，验证编译正确性
+#ifdef DEBUG_PRINT_CODE
+  if (!parser.hadError) {
+    disassembleChunk(currentChunk(), "code");
+  }
+#endif
+}
+
+
+// 存在循环引用，因此需要先声明，否则编译报错
+static void expression();
+static ParseRule* getRule(TokenType type);
+static void parsePrecedence(Precedence precedence);
+
+// -------------------- 将对应的表达式转为字节码 -------------------------
+
+// group表达式，去掉左右括号直接执行中间的表达式
+static void grouping() {
+  expression();
+  consume(TOKEN_RIGHT_PAREN, "Expect ')' after expression.");
+}
+
 // 数字表达式：将字符串转为double, 类似parseFloat自动取前面的数字
 static void number() {
   double value = strtod(parser.previous.start, NULL);
   emitConstant(value);
 }
 
-// group表达式，去掉左右括号直接执行中间的表达式
-static void grouping(bool canAssign) {
-  expression();
-  consume(TOKEN_RIGHT_PAREN, "Expect ')' after expression.");
-}
-
 // 一元表达式
-static void unary(bool canAssign) {
+static void unary() {
   TokenType operatorType = parser.previous.type;
   parsePrecedence(PREC_UNARY);
 
@@ -186,7 +189,7 @@ static void unary(bool canAssign) {
 }
 
 // 二元表达式
-static void binary(bool canAssign) {
+static void binary() {
   TokenType operatorType = parser.previous.type;
 
   ParseRule* rule = getRule(operatorType);
@@ -207,6 +210,8 @@ static void binary(bool canAssign) {
       return;
   }
 }
+
+// -------------------- Pratt Parser -------------------------
 
 ParseRule rules[] = {
 /* Compiling Expressions rules < Calls and Functions infix-left-paren
@@ -325,22 +330,33 @@ ParseRule rules[] = {
   { NULL,     NULL,    PREC_NONE },       // TOKEN_EOF
 };
 
+// 表达式
+static void expression() {
+  parsePrecedence(PREC_ASSIGNMENT);
+}
 
+// 根据类型获取token的解析规则
 static ParseRule* getRule(TokenType type) {
   return &rules[type];
 }
 
+/* 
+  how `(-1 + 2) * 3 - -4` works:
+
+  
+
+*/
 static void parsePrecedence(Precedence precedence) {
-  // What goes here?
   advance();
+  // 前缀表达式规则: -, !, number, left paren
   ParseFn prefixRule = getRule(parser.previous.type)->prefix;
   if (prefixRule == NULL) {
     error("Expect expression.");
     return;
   }
 
+  // 解析对应的表达式
   prefixRule();
-
   while (precedence <= getRule(parser.current.type)->precedence) {
     advance();
     ParseFn infixRule = getRule(parser.previous.type)->infix;
@@ -348,6 +364,7 @@ static void parsePrecedence(Precedence precedence) {
   }
 }
 
+// -------------------- entry -------------------------
 
 bool compile(const char* source, Chunk* chunk) {
   // init scanner
@@ -361,6 +378,7 @@ bool compile(const char* source, Chunk* chunk) {
   parser.panicMode = false;
 
   advance();
+  // 递归解析表达式
   expression();
   consume(TOKEN_EOF, "Unexpected end of expression");
 
