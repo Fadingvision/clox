@@ -178,10 +178,10 @@ static void number() {
 // 一元表达式
 static void unary() {
   TokenType operatorType = parser.previous.type;
-  // 优先写入比一元表达式更高优先级的表达式或同级的表达式，一元表达式可以嵌套：(--4)
+  // 因为是右结合的，优先写入同级或更高优先级的表达式
   parsePrecedence(PREC_UNARY);
 
-  // 然后写入一元表达式
+  // 然后写入一元表达式操作符
   switch (operatorType) {
     case TOKEN_BANG: emitByte(OP_NOT); break;
     case TOKEN_MINUS: emitByte(OP_NEGATE); break;
@@ -195,9 +195,11 @@ static void binary() {
   TokenType operatorType = parser.previous.type;
 
   ParseRule* rule = getRule(operatorType);
-  // 优先写入比当前二元表达式更高的优先级的表达式
+  // 写入右边表达式
+  // 因为是左结合的，所以只能优先写入优先级更高的，不然 a - b - c 就会被解析成 a - (b - c)
   parsePrecedence((Precedence)(rule->precedence + 1));
 
+  // 写入操作符，我们的字节码是基于栈的，因此先写操作数，再写入操作符
   switch (operatorType) {
     case TOKEN_BANG_EQUAL:    emitBytes(OP_EQUAL, OP_NOT); break;
     case TOKEN_EQUAL_EQUAL:   emitByte(OP_EQUAL); break;
@@ -217,6 +219,7 @@ static void binary() {
 // -------------------- Pratt Parser -------------------------
 
 // 每种类型对应的解析规则表：
+// 一些pratt parser实现中，倾向于把这些方法内置到token的对象中，但是这种查找表的方式看起来更直观易懂
 ParseRule rules[] = {
 /* Compiling Expressions rules < Calls and Functions infix-left-paren
   { grouping, NULL,    PREC_NONE },       // TOKEN_LEFT_PAREN
@@ -381,20 +384,24 @@ static ParseRule* getRule(TokenType type) {
 */
 static void parsePrecedence(Precedence precedence) {
   printf("%4d\n", precedence);
+  // lox中一个表达式的开头必须为前缀表达式.
+  // 也就是：(, -, !, indentifier, string, number, false, true, nil, super, this
   advance();
-  // 前缀表达式规则: number, grouping, unary
   ParseFn prefixRule = getRule(parser.previous.type)->prefix;
   if (prefixRule == NULL) {
     error("Expect expression.");
     return;
   }
-
-  // 解析对应的表达式
+  // 解析对应的前缀表达式
   prefixRule();
 
-  // 依次解析后面的优先级高于当前优先级的表达式
+  // 开始查看是否有中序表达式的优先级token
+  // 当后续的token优先级比当前解析的优先级高或者同级的时候，继续解析后续的表达式
+  // 这里是<=, 因此默认为右结合
   while (precedence <= getRule(parser.current.type)->precedence) {
+    // 消费操作符
     advance();
+    // 开始解析右边表达式，目前只有binary
     ParseFn infixRule = getRule(parser.previous.type)->infix;
     infixRule();
   }
