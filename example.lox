@@ -1,2 +1,5 @@
-// expression 
-(--1 + 2) * 3 - -4
+// expression with caculator 
+// (--1 + 2) * 3 - -4
+
+// expression with compare and nil and boolean
+!(5 - 4 > 3 * 2 == !nil)

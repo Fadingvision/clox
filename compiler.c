@@ -147,12 +147,12 @@ static void emitConstant(Value value) {
 static void endCompiler() {
   emitReturn();
 
-// 打印当前指令集，验证编译正确性
-#ifdef DEBUG_PRINT_CODE
+  // 打印当前指令集，验证编译正确性
+  #ifdef DEBUG_PRINT_CODE
   if (!parser.hadError) {
     disassembleChunk(currentChunk(), "code");
   }
-#endif
+  #endif
 }
 
 
@@ -172,7 +172,19 @@ static void grouping() {
 // 数字表达式：将字符串转为double, 类似parseFloat自动取前面的数字
 static void number() {
   double value = strtod(parser.previous.start, NULL);
-  emitConstant(value);
+  emitConstant(NUMBER_VAL(value));
+}
+
+// 文本表达式：nil, false, true;
+static void literal() {
+  // 直接写入对应的操作指令
+  switch (parser.previous.type) {
+    case TOKEN_FALSE: emitByte(OP_FALSE); break;
+    case TOKEN_TRUE: emitByte(OP_TRUE); break;
+    case TOKEN_NIL: emitByte(OP_NIL); break;
+    default:
+      break;
+  }
 }
 
 // 一元表达式
@@ -204,6 +216,7 @@ static void binary() {
     case TOKEN_BANG_EQUAL:    emitBytes(OP_EQUAL, OP_NOT); break;
     case TOKEN_EQUAL_EQUAL:   emitByte(OP_EQUAL); break;
     case TOKEN_GREATER:       emitByte(OP_GREATER); break;
+    // 这里并没有GREATER_EQUAL指令，而是使用 !(a < b) 来代替 a >= b
     case TOKEN_GREATER_EQUAL: emitBytes(OP_LESS, OP_NOT); break;
     case TOKEN_LESS:          emitByte(OP_LESS); break;
     case TOKEN_LESS_EQUAL:    emitBytes(OP_GREATER, OP_NOT); break;
@@ -290,20 +303,14 @@ ParseRule rules[] = {
 //< Jumping Back and Forth table-and
   { NULL,     NULL,    PREC_NONE },       // TOKEN_CLASS
   { NULL,     NULL,    PREC_NONE },       // TOKEN_ELSE
-/* Compiling Expressions rules < Types of Values table-false
-  { NULL,     NULL,    PREC_NONE },       // TOKEN_FALSE
-*/
 //> Types of Values table-false
-  { NULL,  NULL,    PREC_NONE },       // TOKEN_FALSE
+  { literal,  NULL,    PREC_NONE },       // TOKEN_FALSE
 //< Types of Values table-false
   { NULL,     NULL,    PREC_NONE },       // TOKEN_FOR
   { NULL,     NULL,    PREC_NONE },       // TOKEN_FUN
   { NULL,     NULL,    PREC_NONE },       // TOKEN_IF
-/* Compiling Expressions rules < Types of Values table-nil
-  { NULL,     NULL,    PREC_NONE },       // TOKEN_NIL
-*/
 //> Types of Values table-nil
-  { NULL,  NULL,    PREC_NONE },       // TOKEN_NIL
+  { literal,  NULL,    PREC_NONE },       // TOKEN_NIL
 //< Types of Values table-nil
 /* Compiling Expressions rules < Jumping Back and Forth table-or
   { NULL,     NULL,    PREC_NONE },       // TOKEN_OR
@@ -329,7 +336,7 @@ ParseRule rules[] = {
   { NULL,     NULL,    PREC_NONE },       // TOKEN_TRUE
 */
 //> Types of Values table-true
-  { NULL,  NULL,    PREC_NONE },       // TOKEN_TRUE
+  { literal,  NULL,    PREC_NONE },       // TOKEN_TRUE
 //< Types of Values table-true
   { NULL,     NULL,    PREC_NONE },       // TOKEN_VAR
   { NULL,     NULL,    PREC_NONE },       // TOKEN_WHILE
@@ -383,7 +390,6 @@ static ParseRule* getRule(TokenType type) {
   EOF号的优先级PREC_NONE低于PREC_UNARY: 退出
 */
 static void parsePrecedence(Precedence precedence) {
-  printf("%4d\n", precedence);
   // lox中一个表达式的开头必须为前缀表达式.
   // 也就是：(, -, !, indentifier, string, number, false, true, nil, super, this
   advance();

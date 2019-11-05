@@ -29,5 +29,7 @@ InterpretResult interpret(const char* source);
 void push(Value value);
 // 出栈
 Value pop();
+// 取距离栈顶distance的数据
+Value peek(int distance);
 
 # endif
