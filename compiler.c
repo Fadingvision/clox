@@ -128,7 +128,7 @@ static void emitReturn() {
   emitByte(OP_RETURN);
 }
 
-// 写一个constant的double值到chunk的constants数组中，返回index
+// 写一个Value struct到chunk的constants数组中，返回index
 static uint8_t makeConstant(Value value) {
   int constant = addConstant(currentChunk(), value);
   if (constant > UINT8_MAX) {

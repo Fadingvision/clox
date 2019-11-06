@@ -37,6 +37,9 @@ struct sObjString {
   char* chars; // 字符串
 };
 
+// 内联函数：函数调用时会被直接替换为函数体，而不是新开一个函数栈
+// 从而避免频繁调用函数对栈内存的消耗
+// 关键字inline 必须与函数定义体放在一起才能使函数成为内联
 static inline bool isObjType(Value value, ObjType type) {
   return IS_OBJ(value) && AS_OBJ(value)->type == type;
 }
