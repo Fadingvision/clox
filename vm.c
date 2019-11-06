@@ -1,8 +1,11 @@
 #include <stdio.h>
 #include <stdarg.h>
+#include <string.h>
 
 #include "common.h"
 #include "debug.h"
+#include "memory.h"
+#include "object.h"
 #include "compiler.h"
 #include "value.h"
 #include "vm.h"
@@ -42,6 +45,21 @@ static bool toBool(Value value) {
     return false;
   }
   return true;
+}
+
+static void concatenate() {
+  ObjString* b = AS_STRING(pop());
+  ObjString* a = AS_STRING(pop());
+
+  // 把a和b的字符串拷贝到一个新的字符串中
+  int length = a->length + b->length;
+  char* chars = ALLOCATE(char, length + 1);
+  memcpy(chars, a->chars, a->length);
+  memcpy(chars + a->length, b->chars, b->length);
+  chars[length] = '\0';
+
+  ObjString* result = takeString(chars, length);
+  push(OBJ_VAL(result));
 }
 
 static InterpretResult run() {
@@ -92,7 +110,15 @@ static InterpretResult run() {
         push(BOOL_VAL(!toBool(pop())));
         break;
       }
-      case OP_ADD:      BINARY_OP(NUMBER_VAL, +); break;
+      case OP_ADD: {
+        // 支持字符串相加
+        if (IS_STRING(peek(0)) && IS_STRING(peek(1))) {
+          concatenate();
+        } else {
+          BINARY_OP(NUMBER_VAL, +);
+        }
+        break;
+      }
       case OP_SUBTRACT: BINARY_OP(NUMBER_VAL, -); break;
       case OP_MULTIPLY: BINARY_OP(NUMBER_VAL, *); break;
       case OP_DIVIDE:   BINARY_OP(NUMBER_VAL, /); break;
@@ -130,9 +156,12 @@ static InterpretResult run() {
 
 void initVM() {
   resetStack();
+  vm.objects = NULL;
 }
 
-void freeVM() {}
+void freeVM() {
+  freeObjects();
+}
 
 InterpretResult interpret(const char* source) {
   Chunk chunk;

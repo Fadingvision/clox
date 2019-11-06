@@ -5,6 +5,7 @@
 #include "compiler.h"
 #include "scanner.h"
 #include "chunk.h"
+#include "object.h"
 
 #ifdef DEBUG_PRINT_CODE
 #include "debug.h"
@@ -187,6 +188,13 @@ static void literal() {
   }
 }
 
+// 字符串
+static void string() {
+  // 将去掉引号的字符串copy并组成ObjString，然后组成Value类型写入内存
+  emitConstant(OBJ_VAL(copyString(parser.previous.start + 1,
+    parser.previous.length - 2)));
+}
+
 // 一元表达式
 static void unary() {
   TokenType operatorType = parser.previous.type;
@@ -292,7 +300,7 @@ ParseRule rules[] = {
   { NULL,     NULL,    PREC_NONE },       // TOKEN_STRING
 */
 //> Strings table-string
-  { NULL,   NULL,    PREC_NONE },       // TOKEN_STRING
+  { string,   NULL,    PREC_NONE },       // TOKEN_STRING
 //< Strings table-string
   { number,   NULL,    PREC_NONE },       // TOKEN_NUMBER
 /* Compiling Expressions rules < Jumping Back and Forth table-and
