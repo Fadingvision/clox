@@ -52,13 +52,13 @@ static void concatenate() {
   ObjString* a = AS_STRING(pop());
 
   // 把a和b的字符串拷贝到一个新的字符串中
-  int length = a->length + b->length;
-  char* chars = ALLOCATE(char, length + 1);
-  memcpy(chars, a->chars, a->length);
-  memcpy(chars + a->length, b->chars, b->length);
-  chars[length] = '\0';
+  // int length = a->length + b->length;
+  // char* chars = ALLOCATE(char, length + 1);
+  // memcpy(chars, a->chars, a->length);
+  // memcpy(chars + a->length, b->chars, b->length);
+  // chars[length] = '\0';
 
-  ObjString* result = takeString(chars, length);
+  ObjString* result = concatenateString(a, b);
   push(OBJ_VAL(result));
 }
 

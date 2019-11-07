@@ -21,10 +21,13 @@ static Obj* allocateObject(size_t size, ObjType type) {
 }
 
 // 分配一块内存空间以存储ObjString对象
-static ObjString* allocateString(char* chars, int length) {
-  ObjString* string = ALLOCATE_OBJ(ObjString, OBJ_STRING);
+static ObjString* allocateString(const char* chars, int length) {
+  // ObjString* string = ALLOCATE_OBJ(ObjString, OBJ_STRING);
+  size_t size = sizeof(ObjString) + sizeof(char) * (length + 1);
+  ObjString* string = (ObjString*)allocateObject(size, OBJ_STRING);
   // 将其chars指向chars
-  string->chars = chars;
+  memcpy(string->chars, chars, length);
+  string->chars[length] = '\0';
   string->length = length;
 
   return string;
@@ -34,15 +37,26 @@ ObjString* takeString(char* chars, int length) {
   return allocateString(chars, length);
 }
 
+ObjString* concatenateString(ObjString* a, ObjString* b) {
+  int length = a->length + b->length;
+  size_t size = sizeof(ObjString) + sizeof(char) * (length + 1);
+  ObjString* string = (ObjString*)allocateObject(size, OBJ_STRING);
+  memcpy(string->chars, a->chars, a->length);
+  memcpy(string->chars + a->length, b->chars, b->length);
+  string->chars[length] = '\0';
+  string->length = length;
+
+  return string;
+}
+
 // 分配一块内存空间以复制chars
 ObjString* copyString(const char* chars, int length) {
   // 分配一块sizeof(char) * (length + 1)大小的内存空间
-  char* heapChars = ALLOCATE(char, length + 1);
-  memcpy(heapChars, chars, length);
-  // 将heapChars转为C类型的chars(带有\0的终止符)
-  heapChars[length] = '\0';
-
-  return allocateString(heapChars, length);
+  // char* heapChars = ALLOCATE(char, length + 1);
+  // memcpy(heapChars, chars, length);
+  // // 将heapChars转为C类型的chars(带有\0的终止符)
+  // heapChars[length] = '\0';
+  return allocateString(chars, length);
 }
 
 void printObject(Value value) {

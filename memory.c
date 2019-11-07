@@ -18,7 +18,7 @@ static void freeObject(Obj* object) {
     case OBJ_STRING: {
       ObjString* string = (ObjString*)object;
       // free所有的字符串
-      FREE_ARRAY(char, string->chars, string->length + 1);
+      // FREE_ARRAY(char, string->chars, string->length + 1);
       // free对象本身
       FREE(ObjString, object);
       break;

@@ -29,12 +29,23 @@ struct sObj {
 
 // 字类：字符串对象
 
-// C的机制中由于指向sObjString的指针也指向Obj的内存地址
-// 这样 sObjString* 和 Obj*之间就能互相断言
+
+
+/*
+  NOTE: 
+  1. struct嵌套实现类似继承的功能
+  C的机制中由于指向sObjString的指针也指向Obj的内存地址
+  这样 sObjString* 和 Obj*之间就能互相断言
+
+  2. Flexible array member:
+  @refer: https://riptutorial.com/c/example/10850/flexible-array-members
+  为了避免重复的给每个字符串对象分配两个分开的独立的内存(一块给ObjString, 一块给chars),
+  这里使用c99的flexible array member方法来将ObjString和它的char字符串存储在一块联系的内存空间
+*/
 struct sObjString {
-  Obj obj; // 与golang类似，使用struct嵌套来实现类似继承的功能
+  Obj obj; // 基本类型
   int length; // 字符串长度
-  char* chars; // 字符串
+  char chars[]; // 字符串
 };
 
 // 内联函数：函数调用时会被直接替换为函数体，而不是新开一个函数栈
@@ -48,6 +59,9 @@ static inline bool isObjType(Value value, ObjType type) {
 ObjString* copyString(const char* chars, int length);
 // 将给定的chars生成ObjString
 ObjString* takeString(char* chars, int length);
+// 连接两个字符串对象，生成一个新的字符串对象
+ObjString* concatenateString(ObjString*, ObjString*);
+
 void printObject(Value value);
 
 
