@@ -35,6 +35,7 @@ struct sObjString {
   Obj obj; // 与golang类似，使用struct嵌套来实现类似继承的功能
   int length; // 字符串长度
   char* chars; // 字符串
+  uint32_t hash; // 用于缓存字符串的hash值
 };
 
 // 内联函数：函数调用时会被直接替换为函数体，而不是新开一个函数栈

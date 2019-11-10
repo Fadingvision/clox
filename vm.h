@@ -3,6 +3,7 @@
 
 #include "chunk.h"
 #include "object.h"
+#include "table.h"
 
 #define STACK_MAX 256
 
@@ -22,6 +23,8 @@ typedef struct {
   Value* stackTop;
   // 堆内存，用于内存回收
   Obj* objects;
+  // 用于存储所有的字符串
+  Table strings;
 } VM;
 
 void initVM();

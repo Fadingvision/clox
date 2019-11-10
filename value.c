@@ -46,10 +46,8 @@ bool isEuqal(Value a, Value b) {
     case VAL_NIL:    return true;
     case VAL_NUMBER: return AS_NUMBER(a) == AS_NUMBER(b);
     case VAL_OBJ: {
-      ObjString* aString = AS_STRING(a);
-      ObjString* bString = AS_STRING(b);
-      return aString->length == bString->length &&
-        memcmp(aString->chars, bString->chars, aString->length) == 0;
+      // 由于同一个字符串的对象被收集到对象池中，因此只要内存地址相同，则一定是同一个字符串
+      return AS_STRING(a) == AS_STRING(b);
     }
   }
 }
