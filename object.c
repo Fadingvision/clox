@@ -5,6 +5,7 @@
 #include "object.h"
 #include "value.h"
 #include "vm.h"
+#include "table.h"
 
 #define ALLOCATE_OBJ(type, objectType) \
     (type*)allocateObject(sizeof(type), objectType)
@@ -20,42 +21,76 @@ static Obj* allocateObject(size_t size, ObjType type) {
   return object;
 }
 
+// 字符串hash方法
+static uint32_t hashString(const char* key, int length) {
+  uint32_t hash = 2166136261u;
+
+  for (int i = 0; i < length; i++) {
+    hash ^= key[i];
+    hash *= 16777619;
+  }
+
+  return hash;
+}
+
 // 分配一块内存空间以存储ObjString对象
 static ObjString* allocateString(const char* chars, int length) {
-  // ObjString* string = ALLOCATE_OBJ(ObjString, OBJ_STRING);
+  // 首先查看缓存
+  uint32_t hash = hashString(chars, length);
+  ObjString* interned = tableFindString(&vm.strings, chars, length, hash);
+  if (interned != NULL) return interned;
+
+  // 生成新的字符串对象
   size_t size = sizeof(ObjString) + sizeof(char) * (length + 1);
   ObjString* string = (ObjString*)allocateObject(size, OBJ_STRING);
-  // 将其chars指向chars
+
+  string->hash = hash;
   memcpy(string->chars, chars, length);
   string->chars[length] = '\0';
   string->length = length;
 
+  // 每次生成一个字符串的时候，都将string对象收集到hashTable中
+  tableSet(&vm.strings, string, NIL_VAL);
+
   return string;
 }
 
-ObjString* takeString(char* chars, int length) {
-  return allocateString(chars, length);
-}
-
+// 连接两个字符串对象
 ObjString* concatenateString(ObjString* a, ObjString* b) {
   int length = a->length + b->length;
   size_t size = sizeof(ObjString) + sizeof(char) * (length + 1);
   ObjString* string = (ObjString*)allocateObject(size, OBJ_STRING);
+
   memcpy(string->chars, a->chars, a->length);
   memcpy(string->chars + a->length, b->chars, b->length);
+
   string->chars[length] = '\0';
   string->length = length;
+  string->hash = hashString(string->chars, length);
+
+  // 由于在lox中，字符串是不可变的，因此将所有的字符串对象保存在内存中，以便复用
+  // 每当生成一个新的字符串对象时，检查table中是否有该字符串，如果有就复用
+  ObjString* interned = tableFindString(&vm.strings, string->chars, length, string->hash);
+  if (interned != NULL) {
+    // 如果找到了缓存的字符串，将刚才创建的字符串对象回收
+    freeObject((Obj*)string);
+    return interned;
+  }
+
+  // 每次生成一个字符串的时候，都将string对象收集到hashTable中
+  tableSet(&vm.strings, string, NIL_VAL);
 
   return string;
 }
 
+
+// @Depreacted
+ObjString* takeString(char* chars, int length) {
+  return allocateString(chars, length);
+}
+
 // 分配一块内存空间以复制chars
 ObjString* copyString(const char* chars, int length) {
-  // 分配一块sizeof(char) * (length + 1)大小的内存空间
-  // char* heapChars = ALLOCATE(char, length + 1);
-  // memcpy(heapChars, chars, length);
-  // // 将heapChars转为C类型的chars(带有\0的终止符)
-  // heapChars[length] = '\0';
   return allocateString(chars, length);
 }
 

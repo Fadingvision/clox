@@ -45,6 +45,7 @@ struct sObj {
 struct sObjString {
   Obj obj; // 基本类型
   int length; // 字符串长度
+  uint32_t hash; // 用于缓存字符串的hash值
   char chars[]; // 字符串
 };
 

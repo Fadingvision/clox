@@ -13,7 +13,7 @@ void* reallocate(void* previous, size_t oldSize, size_t newSize) {
   return realloc(previous, newSize);                              
 }
 
-static void freeObject(Obj* object) {
+void freeObject(Obj* object) {
   switch (object->type) {
     case OBJ_STRING: {
       ObjString* string = (ObjString*)object;
