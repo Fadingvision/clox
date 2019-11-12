@@ -15,7 +15,7 @@ typedef enum {
 
 typedef struct {
   Chunk* chunk;
-  // 指向instruction
+  // 指令集
   uint8_t* ip;
   // 运行时参数内存栈
   Value stack[STACK_MAX];
@@ -23,8 +23,10 @@ typedef struct {
   Value* stackTop;
   // 堆内存，用于内存回收
   Obj* objects;
-  // 用于存储所有的字符串
+  // 用于存储用户所定义的字符串
   Table strings;
+  // 全局变量
+  Table globals;
 } VM;
 
 void initVM();

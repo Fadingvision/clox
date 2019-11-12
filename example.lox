@@ -5,4 +5,8 @@
 // !(5 - 4 > 3 * 2 == !nil)
 
 // expression with string concatenate
-"hello" + "world"
+var breakfast = "beignets";
+var beverage = "cafe au lait";
+breakfast = "beignets with " + beverage;
+
+print breakfast;

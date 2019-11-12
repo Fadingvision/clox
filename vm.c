@@ -66,6 +66,7 @@ static InterpretResult run() {
   // do not repeat ourself
   #define READ_BYTE() (*vm.ip++)
   #define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
+  #define READ_STRING() AS_STRING(READ_CONSTANT())
   #define BINARY_OP(valueType, op) \
     do { \
       if (!IS_NUMBER(peek(0)) || !IS_NUMBER(peek(1))) { \
@@ -132,10 +133,46 @@ static InterpretResult run() {
         push(BOOL_VAL(isEuqal(a, b)));
         break;
       }
-      case OP_RETURN: {
+      case OP_PRINT: {
         printValue(pop());
         printf("\n");
+        break;
+      }
+      case OP_RETURN: {
         return INTERPRET_OK;
+      }
+      case OP_POP: {
+        pop();
+        break;
+      }
+      case OP_DEFINE_GLOBAL: {
+        // 从栈中去除放入table中
+        ObjString* name = READ_STRING();
+        tableSet(&vm.globals, name, peek(0));
+        pop();
+        break;
+      }
+      case OP_GET_GLOBAL: {
+        // 类似于constant, 从table中取到之后推入栈中，待其他的表达式使用
+        ObjString* name = READ_STRING();
+        Value value;
+        if (!tableGet(&vm.globals, name, &value)) {
+          runtimeError("Undefined variable '%s'.", name->chars);
+          return INTERPRET_RUNTIME_ERROR;
+        }
+        push(value);
+        break;
+      }
+      case OP_SET_GLOBAL: {
+        ObjString* name = READ_STRING();
+        Value value;
+        if (!tableGet(&vm.globals, name, &value)) {
+          runtimeError("Undefined variable '%s'.", name->chars);
+          return INTERPRET_RUNTIME_ERROR;
+        } else {
+          tableSet(&vm.globals, name, peek(0));
+        }
+        break;
       }
       // 读出来写入内存
       case OP_CONSTANT: {
@@ -151,6 +188,7 @@ static InterpretResult run() {
 
   #undef READ_BYTE
   #undef READ_CONSTANT
+  #undef READ_STRING
   #undef BINARY_OP
 }
 
@@ -158,10 +196,12 @@ void initVM() {
   resetStack();
   vm.objects = NULL;
   initTable(&vm.strings);
+  initTable(&vm.globals);
 }
 
 void freeVM() {
   freeTable(&vm.strings);
+  freeTable(&vm.globals);
   freeObjects();
 }
 

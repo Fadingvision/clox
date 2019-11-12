@@ -26,7 +26,7 @@ typedef enum {
   PREC_PRIMARY
 } Precedence;
 
-typedef void (*ParseFn)();
+typedef void (*ParseFn)(bool canAssign);
 
 typedef struct {
   ParseFn prefix;
@@ -103,6 +103,16 @@ static void consume(TokenType type, const char* message) {
   errorAtCurrent(message);
 }
 
+static bool check(TokenType type) {
+  return parser.current.type == type;
+}
+
+static bool match(TokenType type) {
+  if (!check(type)) return false;
+  advance();
+  return true;
+}
+
 // --------------------  字节码写入方法  -------------------------
 
 // 当前正在写入的chunk
@@ -159,25 +169,49 @@ static void endCompiler() {
 
 // 存在循环引用，因此需要先声明，否则编译报错
 static void expression();
+static void declaration();
+static void statement();
+static uint8_t identifierConstant(Token*);
 static ParseRule* getRule(TokenType type);
 static void parsePrecedence(Precedence precedence);
 
 // -------------------- 将对应的表达式转为字节码 -------------------------
 
 // group表达式，去掉左右括号直接执行中间的表达式
-static void grouping() {
+static void grouping(bool canAssign) {
   expression();
   consume(TOKEN_RIGHT_PAREN, "Expect ')' after expression.");
 }
 
 // 数字表达式：将字符串转为double, 类似parseFloat自动取前面的数字
-static void number() {
+static void number(bool canAssign) {
   double value = strtod(parser.previous.start, NULL);
   emitConstant(NUMBER_VAL(value));
 }
 
+// assignment → ( call "." )? IDENTIFIER "=" assignment
+static void namedVariable(Token name, bool canAssign) {
+  uint8_t arg = identifierConstant(&name);
+  /* 
+    为了避免将a * b = c + d解析为 a * (b = c + d): 这样违背了运算符优先级。
+    因此需要加一个限制条件: canAssign.
+    成立的条件：变量前面的运算符的优先级 <= PREC_ASSIGNMENT
+   */
+  if (canAssign && match(TOKEN_EQUAL)) {
+    expression();
+    emitBytes(OP_SET_GLOBAL, arg);
+  } else {
+    emitBytes(OP_GET_GLOBAL, arg);
+  }
+}
+
+// 变量
+static void variable(bool canAssign) {
+  namedVariable(parser.previous, canAssign);
+}
+
 // 文本表达式：nil, false, true;
-static void literal() {
+static void literal(bool canAssign) {
   // 直接写入对应的操作指令
   switch (parser.previous.type) {
     case TOKEN_FALSE: emitByte(OP_FALSE); break;
@@ -189,14 +223,14 @@ static void literal() {
 }
 
 // 字符串
-static void string() {
+static void string(bool canAssign) {
   // 将去掉引号的字符串copy并组成ObjString，然后组成Value类型写入内存
   emitConstant(OBJ_VAL(copyString(parser.previous.start + 1,
     parser.previous.length - 2)));
 }
 
 // 一元表达式
-static void unary() {
+static void unary(bool canAssign) {
   TokenType operatorType = parser.previous.type;
   // 因为是右结合的，优先写入同级或更高优先级的表达式
   parsePrecedence(PREC_UNARY);
@@ -211,7 +245,7 @@ static void unary() {
 }
 
 // 二元表达式
-static void binary() {
+static void binary(bool canAssign) {
   TokenType operatorType = parser.previous.type;
 
   ParseRule* rule = getRule(operatorType);
@@ -294,7 +328,7 @@ ParseRule rules[] = {
   { NULL,     NULL,    PREC_NONE },       // TOKEN_IDENTIFIER
 */
 //> Global Variables table-identifier
-  { NULL, NULL,    PREC_NONE },       // TOKEN_IDENTIFIER
+  { variable, NULL,    PREC_NONE },       // TOKEN_IDENTIFIER
 //< Global Variables table-identifier
 /* Compiling Expressions rules < Strings table-string
   { NULL,     NULL,    PREC_NONE },       // TOKEN_STRING
@@ -352,6 +386,101 @@ ParseRule rules[] = {
   { NULL,     NULL,    PREC_NONE },       // TOKEN_EOF
 };
 
+static void synchronize() {
+  // 重置panic位
+  parser.panicMode = false;
+
+  // 当遇见下述token的时候，我们认为即将开始一个新的语句，在这之前，丢弃所遇见的token
+  while (parser.current.type != TOKEN_EOF) {
+    if (parser.previous.type == TOKEN_SEMICOLON) return;
+
+    switch (parser.current.type) {
+      case TOKEN_CLASS:
+      case TOKEN_FUN:
+      case TOKEN_VAR:
+      case TOKEN_FOR:
+      case TOKEN_IF:
+      case TOKEN_WHILE:
+      case TOKEN_PRINT:
+      case TOKEN_RETURN:
+        return;
+      default: break;
+    }
+
+    advance();
+  }
+}
+
+static uint8_t identifierConstant(Token* name) {
+  // 将变量名字符串对象写入constants中
+  return makeConstant(OBJ_VAL(copyString(name->start, name->length)));
+}
+
+static uint8_t parseVariable(const char* errorMessage) {
+  consume(TOKEN_IDENTIFIER, errorMessage);
+  return identifierConstant(&parser.previous);
+}
+
+static void defineVariable(uint8_t global) {
+  emitBytes(OP_DEFINE_GLOBAL, global);
+}
+
+// varDecl → "var" IDENTIFIER ( "=" expression )? ";" ;
+static void varDeclaration() {
+  // 解析变量名，并返回其在instants中存储的index位置
+  uint8_t global = parseVariable("Expect variable name");
+
+  if (match(TOKEN_EQUAL)) {
+    expression();
+  } else {
+    // 默认初始化为nil值
+    emitByte(OP_NIL);
+  }
+
+  consume(TOKEN_SEMICOLON, "Expect ';' after variable declaration.");
+  // 写入定义全局变量指令和该指令的操作数：global
+  defineVariable(global);
+}
+
+/* 
+  declaration  → classDecl | funDecl | varDecl | statement ;
+*/
+static void declaration() {
+  if (match(TOKEN_VAR)) {
+    varDeclaration();
+  } else {
+    statement();
+  }
+  // 解析某个语句发生错误的时候，进行同步操作：即丢弃当前语句的解析工作，直到下个语句
+  // 这样做可以让我们的编译器同时的发现更多的错误，而不是在第一个错误的时候就退出
+  if (parser.panicMode) synchronize();
+}
+
+// printStmt → "print" expression ";" ;
+static void printStatement() {
+  expression();
+  consume(TOKEN_SEMICOLON, "Expect ';' after expression.");
+  // 写入print指令
+  emitByte(OP_PRINT);
+}
+
+// exprStmt  → expression ";" ;
+static void expressionStatement() {
+  expression();
+  consume(TOKEN_SEMICOLON, "Expect ';' after expression.");
+  // 语义上来说，表达式语句会产生一个值，并且直接被丢弃
+  emitByte(OP_POP);
+}
+
+// statement → exprStmt | forStmt | ifStmt | printStmt | returnStmt | whileStmt | block ;
+static void statement() {
+  if (match(TOKEN_PRINT)) {
+    printStatement();
+  } else {
+    expressionStatement();
+  }
+}
+
 // 表达式
 static void expression() {
   // 从优先级最低的开始
@@ -407,7 +536,8 @@ static void parsePrecedence(Precedence precedence) {
     return;
   }
   // 解析对应的前缀表达式
-  prefixRule();
+  bool canAssign = precedence <= PREC_ASSIGNMENT;
+  prefixRule(canAssign);
 
   // 开始查看是否有中序表达式的优先级token
   // 当后续的token优先级比当前解析的优先级高或者同级的时候，继续解析后续的表达式
@@ -417,7 +547,14 @@ static void parsePrecedence(Precedence precedence) {
     advance();
     // 开始解析右边表达式，目前只有binary
     ParseFn infixRule = getRule(parser.previous.type)->infix;
-    infixRule();
+    infixRule(canAssign);
+  }
+
+  // (a * b) = c + d
+  // (a * b)不是一个有效的可赋值对象
+  if (canAssign && match(TOKEN_EQUAL)) {
+    error("Invalid assignment target.");
+    expression();
   }
 }
 
@@ -435,8 +572,11 @@ bool compile(const char* source, Chunk* chunk) {
   parser.panicMode = false;
 
   advance();
-  // 递归解析表达式
-  expression();
+
+  while (!match(TOKEN_EOF)) {
+    declaration();
+  }
+  
   consume(TOKEN_EOF, "Unexpected end of expression");
 
   endCompiler();
