@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "common.h"
 #include "compiler.h"
@@ -34,6 +35,22 @@ typedef struct {
   Precedence precedence;
 } ParseRule;
 
+// 局部变量
+typedef struct {
+  // 变量名
+  Token name;
+  // 变量所在的块级作用域深度
+  int depth;
+} Local;
+
+typedef struct {
+  Local locals[UINT8_COUNT];
+  // 变量个数
+  int localCount;
+  // 当前正在编译的块级作用域的深度，默认为0即全局作用域
+  int scopeDepth;
+} Compiler;
+
 // Parser 执行one-pass策略，一次循环中编译
 typedef struct {
   Token current;  // 下一个token
@@ -44,6 +61,18 @@ typedef struct {
 
 // 创建一个全局变量，以免传来传去
 Parser parser;
+
+// 当前正在写入的chunk
+Chunk* compilingChunk;
+
+// compiler
+Compiler* current = NULL;
+
+static void initCompiler(Compiler* compiler) {
+  compiler->localCount = 0;
+  compiler->scopeDepth = 0;
+  current = compiler;
+}
 
 // -------------------- token方法 -------------------------
 
@@ -115,9 +144,6 @@ static bool match(TokenType type) {
 
 // --------------------  字节码写入方法  -------------------------
 
-// 当前正在写入的chunk
-Chunk* compilingChunk;
-
 static Chunk* currentChunk() {
   return compilingChunk;
 }
@@ -180,6 +206,7 @@ static void endCompiler() {
 static void expression();
 static void declaration();
 static void statement();
+static bool isIdentifierEqual(Token* a, Token* b);
 static uint8_t identifierConstant(Token*);
 static ParseRule* getRule(TokenType type);
 static void parsePrecedence(Precedence precedence);
@@ -198,9 +225,37 @@ static void number(bool canAssign) {
   emitConstant(NUMBER_VAL(value));
 }
 
+// 从块级作用域去找该变量
+static int resolveLocal(Compiler* compiler, Token* name) {
+  // 从locals一层一层的往上找，直到找到名字相同的变量，返回其在locals中的位置index
+  for (int i = compiler->localCount - 1; i >= 0; i--) {
+    Local* local = &compiler->locals[i];
+    if (isIdentifierEqual(name, &local->name)) {
+      return i;
+    }
+  }
+
+  return -1;
+}
+
 // assignment → ( call "." )? IDENTIFIER "=" assignment
 static void namedVariable(Token name, bool canAssign) {
-  uint8_t arg = identifierConstant(&name);
+  uint8_t getOp, setOp;
+  // 首先尝试从块级作用域去找该变量
+  // 局部: arg为在locals中的位置
+  // 全局: arg为在constants中的位置
+  int arg = resolveLocal(current, &name);
+
+  // 变量找到
+  if (arg != -1) {
+    getOp = OP_GET_LOCAL;
+    setOp = OP_SET_LOCAL;
+  } else {
+    arg = identifierConstant(&name);
+    getOp = OP_GET_GLOBAL;
+    setOp = OP_SET_GLOBAL;
+  }
+
   /* 
     为了避免将a * b = c + d解析为 a * (b = c + d): 这样违背了运算符优先级。
     因此需要加一个限制条件: canAssign.
@@ -208,9 +263,9 @@ static void namedVariable(Token name, bool canAssign) {
    */
   if (canAssign && match(TOKEN_EQUAL)) {
     expression();
-    emitBytes(OP_SET_GLOBAL, arg);
+    emitBytes(setOp, arg);
   } else {
-    emitBytes(OP_GET_GLOBAL, arg);
+    emitBytes(getOp, arg);
   }
 }
 
@@ -425,12 +480,64 @@ static uint8_t identifierConstant(Token* name) {
   return makeConstant(OBJ_VAL(copyString(name->start, name->length)));
 }
 
+// 将变量名加入到locals数组
+static void addLocal(Token name) {
+  if (current->localCount == UINT8_COUNT) {
+    error("Too many local variables in function.");
+    return;
+  }
+
+  Local* local = &current->locals[current->localCount++];
+  local->name = name;
+  local->depth = current->scopeDepth;
+}
+
+static bool isIdentifierEqual(Token* a, Token* b) {
+  if (a->length != b->length) return false;
+  return memcmp(a->start, b->start, a->length) == 0;
+}
+
+// 声明一个局部变量
+static void declareVariable() {
+  Token* name = &parser.previous;
+
+  // 检测当前作用域内是否存在同名变量
+  for (int i = current->localCount - 1; i >= 0; i--) {
+    Local* local = &current->locals[i];
+    if (local->depth != -1 && local->depth < current->scopeDepth) {
+      break;
+    }
+
+    if (isIdentifierEqual(name, &local->name)) {
+      error("Variable with this name already declared in this scope.");
+    }
+  }
+
+  addLocal(*name);
+}
+
 static uint8_t parseVariable(const char* errorMessage) {
   consume(TOKEN_IDENTIFIER, errorMessage);
+
+  // 局部变量
+  if (current->scopeDepth > 0) {
+    declareVariable();
+    return 0;
+  }
+
+  // 全局变量
   return identifierConstant(&parser.previous);
 }
 
 static void defineVariable(uint8_t global) {
+  // 局部变量
+  // NOTE: 在声明局部变量的时候，并不需要像全局变量一样
+  // 反之，我们并不产生任何指令，而是让expression产生的值暂时就放置在stack中
+  // 这样变量值在stack中的位置 = 变量名在locals中的位置
+  if (current->scopeDepth > 0) return;
+
+  // 全局变量：runtime的时候用一个OP_DEFINE_GLOBAL指令来将expression产生的值
+  // 保存在table中，然后pop掉stack中的值
   emitBytes(OP_DEFINE_GLOBAL, global);
 }
 
@@ -481,10 +588,41 @@ static void expressionStatement() {
   emitByte(OP_POP);
 }
 
+// blockStmt → "{" declaration* "}" ;
+static void block() {
+  while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
+    declaration();
+  }
+
+  consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
+}
+
+static void beginScope() {
+  current->scopeDepth++;
+}
+
+static void endScope() {
+  current->scopeDepth--;
+
+  // 从当前作用域退出时，删除该作用域的中的变量，同时也就是去除stack中的临时变量
+  while (current->localCount > 0 &&
+         current->locals[current->localCount - 1].depth >
+            current->scopeDepth) {
+
+    // 由于在退出作用域时，stack中还持有声明变量时的变量值，因此需要依次删除这些值
+    emitByte(OP_POP);
+    current->localCount--;
+  }
+}
+
 // statement → exprStmt | forStmt | ifStmt | printStmt | returnStmt | whileStmt | block ;
 static void statement() {
   if (match(TOKEN_PRINT)) {
     printStatement();
+  } else if (match(TOKEN_LEFT_BRACE)) {
+    beginScope();
+    block();
+    endScope();
   } else {
     expressionStatement();
   }
@@ -572,6 +710,10 @@ static void parsePrecedence(Precedence precedence) {
 bool compile(const char* source, Chunk* chunk) {
   // init scanner
   initScanner(source);
+
+  // init compiler
+  Compiler compiler;
+  initCompiler(&compiler);
 
   // init chunk
   compilingChunk = chunk;

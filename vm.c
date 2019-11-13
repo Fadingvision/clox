@@ -145,6 +145,22 @@ static InterpretResult run() {
         pop();
         break;
       }
+      case OP_GET_LOCAL: {
+        // 在locals中的位置 = 在stack中的位置
+        uint8_t slot = READ_BYTE();
+        // 直接将该值push在stack中供后续表达式使用
+        push(vm.stack[slot]);
+        break;
+      }
+      case OP_SET_LOCAL: {
+        // 在locals中的位置 = 在stack中的位置
+        uint8_t slot = READ_BYTE();
+        // 直接将stack的值进行替换，也就完成了赋值
+        vm.stack[slot] = peek(0);
+
+        // 在赋值表达式中，并不需要pop(), 因为在compile赋值表达式的时候，默认插入了一个OP_POP指令
+        break;
+      }
       case OP_DEFINE_GLOBAL: {
         // 从栈中去除放入table中
         ObjString* name = READ_STRING();
