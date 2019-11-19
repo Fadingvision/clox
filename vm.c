@@ -65,6 +65,8 @@ static void concatenate() {
 static InterpretResult run() {
   // do not repeat ourself
   #define READ_BYTE() (*vm.ip++)
+  // 位运算
+  #define READ_SHORT() (vm.ip += 2, (uint16_t)((vm.ip[-2] << 8) | vm.ip[-1]))
   #define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
   #define READ_STRING() AS_STRING(READ_CONSTANT())
   #define BINARY_OP(valueType, op) \
@@ -199,10 +201,29 @@ static InterpretResult run() {
       case OP_NIL: push(NIL_VAL); break;
       case OP_FALSE: push(BOOL_VAL(false)); break;
       case OP_TRUE: push(BOOL_VAL(true)); break;
+
+      // logic control flow
+      case OP_JUMP_IF_FALSE: {
+        // 读出跳过的字节大小（两个字节存储在OP_JUMP_IF_FALSE后）
+        uint16_t offset = READ_SHORT();
+        // 此时的条件表达式产生的值应该在栈顶，
+        // 如果该条件为假，则跳过offset字节的指令
+        // 条件为真，则这offset个字节的指令会正常执行
+        if (!toBool(peek(0))) vm.ip += offset;
+        break;
+      }
+      case OP_JUMP: {
+        // 读出跳过的字节大小
+        uint16_t offset = READ_SHORT();
+        // 无条件跳过offset字节的指令
+        vm.ip += offset;
+        break;
+      }
     }
   }
 
   #undef READ_BYTE
+  #undef READ_SHORT
   #undef READ_CONSTANT
   #undef READ_STRING
   #undef BINARY_OP

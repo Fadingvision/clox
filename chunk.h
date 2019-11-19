@@ -72,12 +72,16 @@ typedef enum {
   OP_METHOD
 } OpCode;
 
-// Dynamic Array
+// 指令集
 typedef struct {
+  // 数组长度和容量
   int count;
   int capacity;
+  // 指令数组
   uint8_t* code;
+  // 指令对应的代码所在行数
   int* lines;
+  // 指令对应的常量数组
   ValueArray constants;
 } Chunk;  
 

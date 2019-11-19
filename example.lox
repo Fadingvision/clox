@@ -20,5 +20,11 @@ print breakfast;
     var c = a + b;
     print c;
   }
+}
 
+// print "456"
+if (false and true) {
+  print "123";
+} else {
+  print "456";
 }

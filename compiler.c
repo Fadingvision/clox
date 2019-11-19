@@ -159,6 +159,31 @@ static void emitBytes(uint8_t byte1, uint8_t byte2) {
   emitByte(byte2);
 }
 
+// jump补丁，在解析一定代码后，重写该跳过的字节指令
+static void patchJump(int offset) {
+  // 计算自从offsetIndex之后又写入了多少个字节指令
+  // -2 表示减去jump指令后面的两个字节，这是我们要重写的两个字节
+  int jump = currentChunk()->count - offset - 2;
+
+  if (jump > UINT16_MAX) {
+    error("Too much code to jump over.");
+  }
+
+  // 将jump写入该两个字节，这叫做补丁
+  currentChunk()->code[offset] = jump >> 8 & 0xff;
+  currentChunk()->code[offset + 1] = jump & 0xff;
+}
+
+// 写入jump指令(三字节指令)，表明要跳过的执行指令字节数
+static int emitJump(uint8_t instruction) {
+  emitByte(instruction);
+  // 2个字节可以允许跳过65536字节指令，暂时用oxff来占位
+  emitByte(0xff);
+  emitByte(0xff);
+  // 返回跳过字节在数组中的index，方便以后重写
+  return currentChunk()->count - 2;
+}
+
 // return 指令
 static void emitReturn() {
   emitByte(OP_RETURN);
@@ -335,6 +360,38 @@ static void binary(bool canAssign) {
   }
 }
 
+// logic_and  → equality ( "and" equality )* ;
+static void and_(bool canAssign) {
+  int endJump = emitJump(OP_JUMP_IF_FALSE);
+
+  // 在这个函数执行的时候，&& 左边的表达式已经被执行了
+  // 如果左边表达式为真，这里的OP_POP指令会将左边的表达式产生的值丢弃，并将右边的值作为整个and表达式的值存在stack中
+  emitByte(OP_POP);
+  parsePrecedence(PREC_AND);
+
+  // 如果左边的表达式为假, OP_POP指令以及后面的表达式产生的指令都会被跳过，
+  // 则左边的表达式值作为整个and表达式的值
+  patchJump(endJump);
+}
+
+// logic_or   → logic_and ( "or" logic_and )* ;
+static void or_(bool canAssign) {
+  int elseJump = emitJump(OP_JUMP_IF_FALSE);
+
+  int endJump = emitJump(OP_JUMP);
+
+  // 如果左边表达式为假，OP_JUMP指令会被跳过，则OP_POP指令和右边表达式正常执行
+  // 左边的表达式的值被OP_POP丢弃，右边返回的值作为整个表达式的值
+  patchJump(elseJump);
+  emitByte(OP_POP);
+
+  // 正常执行右边表达式
+  parsePrecedence(PREC_OR);
+  // 如果左边表达式为真，OP_JUMP指令正常执行，OP_POP和右边表达式被丢弃
+  // 左边的表达式返回的值作为整个表达式的值
+  patchJump(endJump);
+}
+
 // -------------------- Pratt Parser -------------------------
 
 // 每种类型对应的解析规则表：
@@ -405,7 +462,7 @@ ParseRule rules[] = {
   { NULL,     NULL,    PREC_NONE },       // TOKEN_AND
 */
 //> Jumping Back and Forth table-and
-  { NULL,     NULL,    PREC_AND },        // TOKEN_AND
+  { NULL,     and_,    PREC_AND },        // TOKEN_AND
 //< Jumping Back and Forth table-and
   { NULL,     NULL,    PREC_NONE },       // TOKEN_CLASS
   { NULL,     NULL,    PREC_NONE },       // TOKEN_ELSE
@@ -422,7 +479,7 @@ ParseRule rules[] = {
   { NULL,     NULL,    PREC_NONE },       // TOKEN_OR
 */
 //> Jumping Back and Forth table-or
-  { NULL,     NULL,     PREC_OR },         // TOKEN_OR
+  { NULL,     or_,     PREC_OR },         // TOKEN_OR
 //< Jumping Back and Forth table-or
   { NULL,     NULL,    PREC_NONE },       // TOKEN_PRINT
   { NULL,     NULL,    PREC_NONE },       // TOKEN_RETURN
@@ -588,6 +645,42 @@ static void expressionStatement() {
   emitByte(OP_POP);
 }
 
+// ifStmt → "if" "(" expression ")" statement ( "else" statement )? ;
+static void ifStatement() {
+  consume(TOKEN_LEFT_PAREN, "Expect '(' after 'if'.");
+  expression();
+  consume(TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
+
+  // 跳过then的指令
+  int thenJump = emitJump(OP_JUMP_IF_FALSE);
+
+  // 在执行expression之后，条件表达式产生的值会留在stack中，这里需要将其处理掉
+  // 如果条件为真，我们在这里清理
+  // Note: 每个语句都必须是对栈零副作用的，也就是说，每个语句执行完之后，stack的长度应该和执行该语句之前一样长
+  emitByte(OP_POP);
+
+  statement();
+
+  // 写入跳过else的指令
+  int elseJump = emitJump(OP_JUMP);
+
+  // Note: 这里计算的字节数包含了上面的OP_JUMP和OP_POP
+  // 也就是说如果条件为假，会自动跳过OP_JUMP和OP_POP指令的执行，也就是说else语句会正常执行。
+  patchJump(thenJump);
+
+  // 如果条件为假，前面的OP_POP指令会被跳过，我们在这里清理
+  emitByte(OP_POP);
+
+  // 匹配else语句
+  if (match(TOKEN_ELSE)) statement();
+  // 为OP_JUMP指令打补丁
+  // 如果上面的条件为真，则这个OP_JUMP指令会被执行，则OP_POP和else语句内的指令就被跳过了
+  patchJump(elseJump);
+}
+
+static void forStatement() {}
+static void whileStatement() {}
+
 // blockStmt → "{" declaration* "}" ;
 static void block() {
   while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
@@ -619,6 +712,12 @@ static void endScope() {
 static void statement() {
   if (match(TOKEN_PRINT)) {
     printStatement();
+  } else if (match(TOKEN_IF)) {
+    ifStatement();
+  } else if (match(TOKEN_FOR)) {
+    forStatement();
+  } else if (match(TOKEN_WHILE)) {
+    whileStatement();
   } else if (match(TOKEN_LEFT_BRACE)) {
     beginScope();
     block();
