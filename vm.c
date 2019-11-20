@@ -219,6 +219,13 @@ static InterpretResult run() {
         vm.ip += offset;
         break;
       }
+      case OP_LOOP: {
+        // 读出回跳的字节大小
+        uint16_t offset = READ_SHORT();
+        // 无条件回跳offset字节的指令
+        vm.ip -= offset;
+        break;
+      }
     }
   }
 

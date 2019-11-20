@@ -184,6 +184,19 @@ static int emitJump(uint8_t instruction) {
   return currentChunk()->count - 2;
 }
 
+// 写入loop指令，用于回跳指令
+static void emitLoop(int loopStart) {
+  emitByte(OP_LOOP);
+  // offset表示需要回跳的指令字节数
+  // 在while中：即为：条件指令 + body中的指令 + OP_LOOP指令 + 2(下面的两个操作数占用的字节)
+  int offset = currentChunk()->count - loopStart + 2;
+
+  if (offset > UINT16_MAX) error("Loop body too large.");
+
+  emitByte((offset >> 8) & 0xff);
+  emitByte(offset & 0xff);
+}
+
 // return 指令
 static void emitReturn() {
   emitByte(OP_RETURN);
@@ -678,8 +691,35 @@ static void ifStatement() {
   patchJump(elseJump);
 }
 
+/* 
+  forStmt   → "for" "(" ( varDecl | exprStmt | ";" )
+                      expression? ";"
+                      expression? ")" statement ;
+ */
 static void forStatement() {}
-static void whileStatement() {}
+
+// whileStmt → "while" "(" expression ")" statement ;
+static void whileStatement() {
+  // 记录循环开始的位置
+  int loopStart = currentChunk()->count;
+
+  consume(TOKEN_LEFT_PAREN, "Expect '(' after 'while'.");
+  expression();
+  consume(TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
+
+  // 如果条件为false,则跳过while的body语句
+  int exitJump = emitJump(OP_JUMP_IF_FALSE);
+  emitByte(OP_POP);
+  statement();
+
+  // 在while body执行完毕之后，需要用一个OP_LOOP重新跳回到条件指令执行之前，重新执行一遍整个while语句
+  emitLoop(loopStart);
+
+  // 一旦当某个时候条件为false, 则整个Body指令和上面的OP_LOOP指令会被跳过，则跳出了while循环，程序正常向下执行
+  patchJump(exitJump);
+  // 条件为false的时候跳出循环，上面的OP_POP指令也会被跳过，需要在这里清理条件指令产生的stack effect
+  emitByte(OP_POP);
+}
 
 // blockStmt → "{" declaration* "}" ;
 static void block() {

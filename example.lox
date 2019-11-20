@@ -28,3 +28,10 @@ if (false and true) {
 } else {
   print "456";
 }
+
+
+var a = 1;
+while (a <= 4) {
+  print a;
+  a = a + 1;
+}
