@@ -23,6 +23,14 @@ void freeObject(Obj* object) {
       FREE(ObjString, object);
       break;
     }
+    case OBJ_FUNCTION: {
+      ObjFunction* func = (ObjFunction*)object;
+      // free函数体的指令集
+      freeChunk(&func->chunk);
+      // free对象本身
+      FREE(ObjFunction, object);
+      break;
+    }
   }
 }
 

@@ -16,6 +16,7 @@ VM vm;
 static void resetStack() {
   // 将栈顶指向数组初始的第一个位置为清空栈
   vm.stackTop = vm.stack;
+  vm.frameCount = 0;
 }
 
 // c的可变长参数函数
@@ -31,8 +32,9 @@ static void runtimeError(const char* format, ...) {
   fputs("\n", stderr);
 
   // 写入出错的行数
-  size_t instruction = vm.ip - vm.chunk->code;
-  int line = vm.chunk->lines[instruction];
+  CallFrame* frame = &vm.frames[vm.frameCount - 1];
+  size_t instruction = frame->ip - frame->function->chunk.code;
+  int line = frame->function->chunk.lines[instruction];
   fprintf(stderr, "[line %d] in script\n", line);
 
   resetStack();
@@ -63,11 +65,13 @@ static void concatenate() {
 }
 
 static InterpretResult run() {
-  // do not repeat ourself
-  #define READ_BYTE() (*vm.ip++)
+  CallFrame* frame = &vm.frames[vm.frameCount - 1];
+
+  // 从当前函数的调用栈读取一个字节的指令
+  #define READ_BYTE() (*frame->ip++)
   // 位运算
-  #define READ_SHORT() (vm.ip += 2, (uint16_t)((vm.ip[-2] << 8) | vm.ip[-1]))
-  #define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
+  #define READ_SHORT() (frame->ip += 2, (uint16_t)((frame->ip[-2] << 8) | frame->ip[-1]))
+  #define READ_CONSTANT() (frame->function->chunk.constants.values[READ_BYTE()])
   #define READ_STRING() AS_STRING(READ_CONSTANT())
   #define BINARY_OP(valueType, op) \
     do { \
@@ -93,7 +97,7 @@ static InterpretResult run() {
       }
       printf("\n");
       // DEBUG: 打印待执行的指令
-      disassembleInstruction(vm.chunk, (int)(vm.ip - vm.chunk->code));
+      disassembleInstruction(&frame->function->chunk, (int)(frame->ip - frame->function->chunk.code));
     #endif
 
     uint8_t instruction;
@@ -148,17 +152,17 @@ static InterpretResult run() {
         break;
       }
       case OP_GET_LOCAL: {
-        // 在locals中的位置 = 在stack中的位置
+        // 在locals中的位置 = 在slots中的位置
         uint8_t slot = READ_BYTE();
         // 直接将该值push在stack中供后续表达式使用
-        push(vm.stack[slot]);
+        push(frame->slots[slot]);
         break;
       }
       case OP_SET_LOCAL: {
-        // 在locals中的位置 = 在stack中的位置
+        // 在locals中的位置 = 在slots中的位置
         uint8_t slot = READ_BYTE();
-        // 直接将stack的值进行替换，也就完成了赋值
-        vm.stack[slot] = peek(0);
+        // 直接将slots的值进行替换，也就完成了赋值
+        frame->slots[slot] = peek(0);
 
         // 在赋值表达式中，并不需要pop(), 因为在compile赋值表达式的时候，默认插入了一个OP_POP指令
         break;
@@ -209,21 +213,21 @@ static InterpretResult run() {
         // 此时的条件表达式产生的值应该在栈顶，
         // 如果该条件为假，则跳过offset字节的指令
         // 条件为真，则这offset个字节的指令会正常执行
-        if (!toBool(peek(0))) vm.ip += offset;
+        if (!toBool(peek(0))) frame->ip += offset;
         break;
       }
       case OP_JUMP: {
         // 读出跳过的字节大小
         uint16_t offset = READ_SHORT();
         // 无条件跳过offset字节的指令
-        vm.ip += offset;
+        frame->ip += offset;
         break;
       }
       case OP_LOOP: {
         // 读出回跳的字节大小
         uint16_t offset = READ_SHORT();
         // 无条件回跳offset字节的指令
-        vm.ip -= offset;
+        frame->ip -= offset;
         break;
       }
     }
@@ -249,17 +253,29 @@ void freeVM() {
   freeObjects();
 }
 
+// 执行源码
 InterpretResult interpret(const char* source) {
-  Chunk chunk;
-  initChunk(&chunk);
-  if (!compile(source, &chunk)) {
-    freeChunk(&chunk);
+  // 将源码编译成字节码
+  ObjFunction* function = compile(source);
+  if (function == NULL)  {
     return INTERPRET_COMPILE_ERROR;
   }
-  vm.chunk = &chunk;
-  vm.ip = vm.chunk->code;
+
+  /* 
+    Note: 我们的局部变量都是通过该偏移量去获取的，因此locals的位置和stack中的位置必须保持一致
+    因为在编译时已经将该函数名推入了locals中。所以这里必须将函数的值也推入stack中，以保持两个数组的偏移量一致
+  */
+  // 将顶级匿名函数入栈
+  push(OBJ_VAL(function));
+  // 初始化第一个调用帧，也就是顶级函数
+  CallFrame* frame = &vm.frames[vm.frameCount++];
+  frame->function = function;
+  frame->ip = function->chunk.code;
+  // 此时函数栈的底部应该等于整个执行栈的底部
+  frame->slots = vm.stack;
+
+  // 执行字节码
   InterpretResult result = run();
-  freeChunk(&chunk);
   return result;
 }
 

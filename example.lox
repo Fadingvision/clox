@@ -39,3 +39,9 @@ if (false and true) {
 for (var i = 1; i < 4; i = i + 1) {
   print i;
 }
+
+fun areWeHavingItYet() {
+  print "Yes we are!";
+}
+
+print areWeHavingItYet;

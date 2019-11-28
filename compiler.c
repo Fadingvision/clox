@@ -43,7 +43,20 @@ typedef struct {
   int depth;
 } Local;
 
-typedef struct {
+typedef enum {
+  TYPE_FUNCTION,
+  TYPE_SCRIPT
+} FunctionType;
+
+typedef struct Compiler {
+  struct Compiler* enclosing;
+  // 引入函数之后，编译器将不再把所有的代码写入一个大的字节码指令集之中
+  // 而是根据function来划分作用域，把顶级作用域当作一个函数，此外每遇到一个函数声明就声明一个compiler
+  // 每个函数都会有自己的compiler和对应的function以及其字节码指令集chunk.
+  ObjFunction* function;
+  // 函数类型，标明是在函数内(TYPE_FUNCTION)还是在顶级作用域内(TYPE_SCRIPT)
+  FunctionType type;
+  // 局部变量数组，主要用于记录变量的名字和位置，真实的变量存于stack中
   Local locals[UINT8_COUNT];
   // 变量个数
   int localCount;
@@ -59,19 +72,42 @@ typedef struct {
   bool hadError;
 } Parser;
 
-// 创建一个全局变量，以免传来传去
+// 语法分析器：创建一个全局变量，以免传来传去
 Parser parser;
 
 // 当前正在写入的chunk
-Chunk* compilingChunk;
+// @Deprecated: 每个函数都维护自己的chunk, 因此不需要一个全局的chunk
+// Chunk* compilingChunk;
 
 // compiler
 Compiler* current = NULL;
 
-static void initCompiler(Compiler* compiler) {
+static void initCompiler(Compiler* compiler, FunctionType type) {
+  compiler->enclosing = current;
+
+  compiler->function = NULL;
+  compiler->type = type;
+
   compiler->localCount = 0;
   compiler->scopeDepth = 0;
+
+  compiler->function = newFunction();
   current = compiler;
+
+  if (type != TYPE_SCRIPT) {
+    current->function->name = copyString(parser.previous.start, parser.previous.length);
+  }
+
+  // 将第一个变量写为空，作为全局作用域（函数）的名字
+  Local* local = &current->locals[current->localCount++];
+  local->depth = 0;
+  local->name.start = "";
+  local->name.length = 0;
+}
+
+static Chunk* currentChunk() {
+  // return compilingChunk;
+  return &current->function->chunk;
 }
 
 // -------------------- token方法 -------------------------
@@ -143,10 +179,6 @@ static bool match(TokenType type) {
 }
 
 // --------------------  字节码写入方法  -------------------------
-
-static Chunk* currentChunk() {
-  return compilingChunk;
-}
 
 // 写入一个字节指令到chunk中
 static void emitByte(uint8_t byte) {
@@ -228,15 +260,23 @@ static void emitConstant(Value value) {
 }
 
 // 暂时用return指令来结束编译
-static void endCompiler() {
+static ObjFunction* endCompiler() {
   emitReturn();
+
+  ObjFunction* function = current->function;
 
   // 打印当前指令集，验证编译正确性
   #ifdef DEBUG_PRINT_CODE
   if (!parser.hadError) {
-    disassembleChunk(currentChunk(), "code");
+    disassembleChunk(
+      currentChunk(),
+      function->name != NULL ? function->name->chars : "<script>"
+    );
   }
   #endif
+  // 当一个函数体完毕之后，需要将current重置为父环境的current;
+  current = current->enclosing;
+  return function;
 }
 
 
@@ -269,6 +309,9 @@ static int resolveLocal(Compiler* compiler, Token* name) {
   for (int i = compiler->localCount - 1; i >= 0; i--) {
     Local* local = &compiler->locals[i];
     if (isIdentifierEqual(name, &local->name)) {
+      if (local->depth == -1) {                                     
+        error("Cannot read local variable in its own initializer.");
+      }
       return i;
     }
   }
@@ -559,7 +602,9 @@ static void addLocal(Token name) {
 
   Local* local = &current->locals[current->localCount++];
   local->name = name;
-  local->depth = current->scopeDepth;
+  // 此时变量还未完成初始化，将其设为-1, 如果在初始化表达式中引用了该变量，则报错
+  // eg: var a = a;
+  local->depth = -1;
 }
 
 static bool isIdentifierEqual(Token* a, Token* b) {
@@ -599,12 +644,23 @@ static uint8_t parseVariable(const char* errorMessage) {
   return identifierConstant(&parser.previous);
 }
 
+static void markInitialized() {
+  // 如果是全局作用域不需要判断
+  if (current->scopeDepth == 0) return;
+  current->locals[current->localCount - 1].depth =
+      current->scopeDepth;
+}
+
 static void defineVariable(uint8_t global) {
   // 局部变量
   // NOTE: 在声明局部变量的时候，并不需要像全局变量一样
   // 反之，我们并不产生任何指令，而是让expression产生的值暂时就放置在stack中
   // 这样变量值在stack中的位置 = 变量名在locals中的位置
-  if (current->scopeDepth > 0) return;
+  if (current->scopeDepth > 0) {
+    // 完成变量的初始化
+    markInitialized();
+    return;
+  }
 
   // 全局变量：runtime的时候用一个OP_DEFINE_GLOBAL指令来将expression产生的值
   // 保存在table中，然后pop掉stack中的值
@@ -628,16 +684,83 @@ static void varDeclaration() {
   defineVariable(global);
 }
 
+static void beginScope() {
+  current->scopeDepth++;
+}
+
+static void endScope() {
+  current->scopeDepth--;
+
+  // 从当前作用域退出时，删除该作用域的中的变量，同时也就是去除stack中的临时变量
+  while (current->localCount > 0 &&
+         current->locals[current->localCount - 1].depth > current->scopeDepth) {
+    // 由于在退出作用域时，stack中还持有声明变量时的变量值，因此需要依次删除这些值
+    emitByte(OP_POP);
+    current->localCount--;
+  }
+}
+
+// blockStmt → "{" declaration* "}" ;
+static void block() {
+  while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
+    declaration();
+  }
+
+  consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
+}
+
+static void function(FunctionType type) {
+  // 为每个函数初始化一个独立的compiler, 这样每个函数都拥有其独立的chunk和locals
+  Compiler compiler;
+  initCompiler(&compiler, type);
+  beginScope();
+
+  // 参数
+  consume(TOKEN_LEFT_PAREN, "Expect '(' after function name.");
+  if (!check(TOKEN_RIGHT_PAREN)) {                                    
+    do {                                                              
+      current->function->arity++;
+      if (current->function->arity > 255) {
+        errorAtCurrent("Cannot have more than 255 parameters.");
+      }
+      // 初始化每个参数为函数的局部变量
+      uint8_t paramConstant = parseVariable("Expect parameter name.");
+      defineVariable(paramConstant);
+    } while (match(TOKEN_COMMA));
+  }
+  consume(TOKEN_RIGHT_PAREN, "Expect ')' after parameters.");
+
+  // 函数体
+  consume(TOKEN_LEFT_BRACE, "Expect '{' before function body.");
+  block();
+  
+  ObjFunction* function = endCompiler();
+  emitBytes(OP_CONSTANT, makeConstant(OBJ_VAL(function)));
+}
+
+// func → "fun" IDENTIFIER? "(" parameters? ")" block ;
+static void funDeclaration() {
+  uint8_t global = parseVariable("Expect function name.");
+  // 函数可以在声明初始化之前在函数体中使用（递归），因此直接完成初始化
+  markInitialized();
+  // 解析参数和函数体
+  function(TYPE_FUNCTION);
+  // 定义该函数变量
+  defineVariable(global);
+}
+
 /* 
   declaration  → classDecl | funDecl | varDecl | statement ;
 */
 static void declaration() {
   if (match(TOKEN_VAR)) {
     varDeclaration();
+  } else if (match(TOKEN_FUN)) {
+    funDeclaration();
   } else {
     statement();
   }
-  // 解析某个语句发生错误的时候，进行同步操作：即丢弃当前语句的解析工作，直到下个语句
+  // 解析某个语句发生错误的时候，进行同步操作：即丢弃当前语句的解析工作，跳到下个语句
   // 这样做可以让我们的编译器同时的发现更多的错误，而不是在第一个错误的时候就退出
   if (parser.panicMode) synchronize();
 }
@@ -690,25 +813,6 @@ static void ifStatement() {
   // 如果上面的条件为真，则这个OP_JUMP指令会被执行，则OP_POP和else语句内的指令就被跳过了
   patchJump(elseJump);
 }
-
-static void beginScope() {
-  current->scopeDepth++;
-}
-
-static void endScope() {
-  current->scopeDepth--;
-
-  // 从当前作用域退出时，删除该作用域的中的变量，同时也就是去除stack中的临时变量
-  while (current->localCount > 0 &&
-         current->locals[current->localCount - 1].depth >
-            current->scopeDepth) {
-
-    // 由于在退出作用域时，stack中还持有声明变量时的变量值，因此需要依次删除这些值
-    emitByte(OP_POP);
-    current->localCount--;
-  }
-}
-
 
 /* 
   forStmt   → "for" "(" ( varDecl | exprStmt | ";" )
@@ -798,16 +902,6 @@ static void whileStatement() {
   // 条件为false的时候跳出循环，上面的OP_POP指令也会被跳过，需要在这里清理条件指令产生的stack effect
   emitByte(OP_POP);
 }
-
-// blockStmt → "{" declaration* "}" ;
-static void block() {
-  while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
-    declaration();
-  }
-
-  consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
-}
-
 
 // statement → exprStmt | forStmt | ifStmt | printStmt | returnStmt | whileStmt | block ;
 static void statement() {
@@ -907,31 +1001,37 @@ static void parsePrecedence(Precedence precedence) {
 
 // -------------------- entry -------------------------
 
-bool compile(const char* source, Chunk* chunk) {
-  // init scanner
+ObjFunction* compile(const char* source) {
+  // 初始化词法分析器
   initScanner(source);
 
-  // init compiler
+  // 初始化编译器
   Compiler compiler;
-  initCompiler(&compiler);
+  initCompiler(&compiler, TYPE_SCRIPT);
 
-  // init chunk
-  compilingChunk = chunk;
-
-  // init parser
+  // 初始化语法分析器
   parser.hadError = false;
   parser.panicMode = false;
 
+  // 由于我们的语法分析器每次最多只需要前瞻一个字符
+  // 为了节约资源，我们可以同时进行词法分析和语法分析
   advance();
-
   while (!match(TOKEN_EOF)) {
     declaration();
   }
   
   consume(TOKEN_EOF, "Unexpected end of expression");
 
-  endCompiler();
-  return !parser.hadError;
+  // 结束编译，我们将整个script作为一个顶级的function，这样只需要在虚拟机中执行这个function的字节码
+  // 将源码编译为一个顶级function
+  // 类似与js中的Immediately Invoked Function Expression: 
+  /* 
+    (function () {
+      statements
+    })();
+  */
+  ObjFunction* function = endCompiler();
+  return parser.hadError ? NULL : function;
 
   // 不需要像glox一样一次性把所有的token分析出来，只需要按需分析，节省内存
   // int line = -1;

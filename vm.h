@@ -5,7 +5,8 @@
 #include "object.h"
 #include "table.h"
 
-#define STACK_MAX 256
+#define FRAMES_MAX 64                       
+#define STACK_MAX (FRAMES_MAX * UINT8_COUNT)
 
 typedef enum {
   INTERPRET_OK,
@@ -13,10 +14,26 @@ typedef enum {
   INTERPRET_RUNTIME_ERROR
 } InterpretResult;
 
+// CallFrame代表一个正在进行的函数调用
 typedef struct {
-  Chunk* chunk;
-  // 指令集
+  // 正在执行的函数
+  ObjFunction* function;
+  // 函数体指令集
   uint8_t* ip;
+  /* 
+    call Window: 在函数出现之前，我们获取变量的值是根据它在stack中的偏移量而来的，这个值不会变化
+    在函数之后，由于函数的调用位置和次数的不确定性，这个偏移位置同样具有了不确定性
+    因此引入了slots概念，slots指向vm的stack中的一个位置，我们在每次调用前更新这个值，这个位置恰好是函数调用开始的位置，
+    此后函数内部的变量都根据slots这个位置来计算偏移量，这样才能保证取到正确的对应变量
+   */
+  Value* slots;
+} CallFrame;
+
+typedef struct {
+  // @TODO:
+  CallFrame frames[FRAMES_MAX];
+  int frameCount;
+  
   // 运行时参数内存栈
   Value stack[STACK_MAX];
   // 栈顶，默认指向下一个需要存储的位置

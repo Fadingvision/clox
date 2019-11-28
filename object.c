@@ -21,6 +21,16 @@ static Obj* allocateObject(size_t size, ObjType type) {
   return object;
 }
 
+ObjFunction* newFunction() {
+  ObjFunction* function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
+
+  function->arity = 0;
+  function->name = NULL;
+  initChunk(&function->chunk);
+
+  return function;
+}
+
 // 字符串hash方法
 static uint32_t hashString(const char* key, int length) {
   uint32_t hash = 2166136261u;
@@ -94,10 +104,24 @@ ObjString* copyString(const char* chars, int length) {
   return allocateString(chars, length);
 }
 
+static void printFunction(ObjFunction* func) {
+  // debug print
+  if (func->name == NULL) {
+    printf("<script>");
+    return;
+  }
+
+  // 打印出函数名，一些更好的实现会打印出整个函数体
+  printf("<fn %s>", func->name->chars);
+}
+
 void printObject(Value value) {
   switch (OBJ_TYPE(value)) {
   case OBJ_STRING:
     printf("%s", AS_CSTRING(value));
+    break;
+  case OBJ_FUNCTION:
+    printFunction(AS_FUNCTION(value));
     break;
   default:
     break;

@@ -74,14 +74,15 @@ typedef enum {
 
 // 指令集
 typedef struct {
-  // 数组长度和容量
+  // 长度
   int count;
+  // 容量
   int capacity;
   // 指令数组
   uint8_t* code;
   // 指令对应的代码所在行数
   int* lines;
-  // 指令对应的常量数组
+  // 指令对应的常量数组，用于存储指令的操作数
   ValueArray constants;
 } Chunk;  
 

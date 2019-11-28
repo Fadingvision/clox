@@ -3,21 +3,26 @@
 
 #include "common.h"
 #include "value.h"
+#include "Chunk.h"
 
 // 获取对应的类型
 #define OBJ_TYPE(value) (AS_OBJ(value)->type)
 
 // 判断类型
 #define IS_STRING(value)  isObjType(value, OBJ_STRING)
+#define IS_FUNCTION(value) isObjType(value, OBJ_FUNCTION)
 
 // 对Obj进行断言得到ObjString
 #define AS_STRING(value)        ((ObjString*)AS_OBJ(value))
 // 获取chars字符串
 #define AS_CSTRING(value)       (((ObjString*)AS_OBJ(value))->chars)
+// 获取函数
+#define AS_FUNCTION(value)       (((ObjFunction*)AS_OBJ(value)))
 
 // 对象的类型
 typedef enum {
   OBJ_STRING,
+  OBJ_FUNCTION,
 } ObjType;
 
 // 相当于对象的base class，每个obj都有一个类型
@@ -27,10 +32,16 @@ struct sObj {
   struct sObj* next;
 };
 
-// 字类：字符串对象
+// 子类：函数对象
+typedef struct {
+  Obj obj;
+  int arity;        // 函数参数数量
+  Chunk chunk;      // 函数体对应的指令集
+  ObjString* name;  // 函数名
+} ObjFunction;
 
 
-
+// 子类：字符串对象
 /*
   NOTE: 
   1. struct嵌套实现类似继承的功能
@@ -40,7 +51,7 @@ struct sObj {
   2. Flexible array member:
   @refer: https://riptutorial.com/c/example/10850/flexible-array-members
   为了避免重复的给每个字符串对象分配两个分开的独立的内存(一块给ObjString, 一块给chars),
-  这里使用c99的flexible array member方法来将ObjString和它的char字符串存储在一块联系的内存空间
+  这里使用c99的flexible array member方法来将ObjString和它的char字符串存储在一块连续的内存空间
 */
 struct sObjString {
   Obj obj; // 基本类型
@@ -62,6 +73,10 @@ ObjString* copyString(const char* chars, int length);
 ObjString* takeString(char* chars, int length);
 // 连接两个字符串对象，生成一个新的字符串对象
 ObjString* concatenateString(ObjString*, ObjString*);
+
+
+// 初始化新的函数对象
+ObjFunction* newFunction();
 
 void printObject(Value value);
 
