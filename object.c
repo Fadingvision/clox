@@ -31,6 +31,14 @@ ObjFunction* newFunction() {
   return function;
 }
 
+// 初始化一个内置函数
+ObjNative* newNative(NativeFn function) {
+  ObjNative* native = ALLOCATE_OBJ(ObjNative, OBJ_NATIVE);
+  native->function = function;
+
+  return native;
+}
+
 // 字符串hash方法
 static uint32_t hashString(const char* key, int length) {
   uint32_t hash = 2166136261u;
@@ -122,6 +130,9 @@ void printObject(Value value) {
     break;
   case OBJ_FUNCTION:
     printFunction(AS_FUNCTION(value));
+    break;
+  case OBJ_NATIVE:
+    printf("<native fn>");
     break;
   default:
     break;

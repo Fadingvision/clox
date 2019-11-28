@@ -45,5 +45,12 @@ fun areWeHavingItYet() {
   return "return value";
 }
 
-print areWeHavingItYet();
-// print areWeHavingItYet;
+fun fib(n) {
+  if (n < 2) return n;
+  return fib(n - 2) + fib(n - 1);
+}
+
+// 计算35的斐波那契数列需要的时间(s)，macbook pro(2018)大约消耗：4.55s
+var start = clock();
+print fib(35);
+print clock() - start;

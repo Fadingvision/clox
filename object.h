@@ -11,6 +11,7 @@
 // 判断类型
 #define IS_STRING(value)  isObjType(value, OBJ_STRING)
 #define IS_FUNCTION(value) isObjType(value, OBJ_FUNCTION)
+#define IS_NATIVE(value) isObjType(value, OBJ_NATIVE)
 
 // 对Obj进行断言得到ObjString
 #define AS_STRING(value)        ((ObjString*)AS_OBJ(value))
@@ -18,11 +19,14 @@
 #define AS_CSTRING(value)       (((ObjString*)AS_OBJ(value))->chars)
 // 获取函数
 #define AS_FUNCTION(value)       (((ObjFunction*)AS_OBJ(value)))
+// 获取内置函数
+#define AS_NATIVE(value)       (((ObjNative*)AS_OBJ(value))->function)
 
 // 对象的类型
 typedef enum {
   OBJ_STRING,
   OBJ_FUNCTION,
+  OBJ_NATIVE,
 } ObjType;
 
 // 相当于对象的base class，每个obj都有一个类型
@@ -39,6 +43,16 @@ typedef struct {
   Chunk chunk;      // 函数体对应的指令集
   ObjString* name;  // 函数名
 } ObjFunction;
+
+// 定义一个NativeFn类型
+// 这个类型为Value func(int argCount, Value* args)这种函数的指针类型
+typedef Value (*NativeFn)(int argCount, Value* args);
+
+// 内置函数对象
+typedef struct {
+  Obj obj;
+  NativeFn function;
+} ObjNative;
 
 
 // 子类：字符串对象
@@ -77,6 +91,8 @@ ObjString* concatenateString(ObjString*, ObjString*);
 
 // 初始化新的函数对象
 ObjFunction* newFunction();
+
+ObjNative* newNative(NativeFn function);
 
 void printObject(Value value);
 

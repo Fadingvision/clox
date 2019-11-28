@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
+#include <time.h>
 
 #include "common.h"
 #include "debug.h"
@@ -12,6 +13,14 @@
 
 // 基于栈的虚拟机
 VM vm;
+
+// 第一个内置函数：clock函数
+static Value clockNative(int argCount, Value* args) {
+  // clock函数返回CPU的时钟周期计数
+  // CPU时钟频率，也就是CLOCKS_PER_SEC
+  // 两者相除得到程序消耗的时间
+  return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
+}
 
 static void resetStack() {
   // 将栈顶指向数组初始的第一个位置为清空栈
@@ -54,6 +63,17 @@ static void runtimeError(const char* format, ...) {
   }
 
   resetStack();
+}
+
+// 定义一个内置函数
+static void defineNative(const char* name, NativeFn function) {
+  // Note: push, pop操作是为了垃圾回收
+  push(OBJ_VAL(copyString(name, (int)strlen(name))));
+  push(OBJ_VAL(newNative(function)));
+  // 将其插入全局变量中
+  tableSet(&vm.globals, AS_STRING(vm.stack[0]), vm.stack[1]);
+  pop();
+  pop();
 }
 
 // 除了nil和false本身，其余全为true
@@ -108,10 +128,19 @@ static bool call(ObjFunction* function, int argCount) {
 static bool callValue(Value callee, int argCount) {
   if (IS_OBJ(callee)) {
     switch (OBJ_TYPE(callee)) {
-      case OBJ_FUNCTION:
+      case OBJ_FUNCTION: {
         return call(AS_FUNCTION(callee), argCount);
         break;
-      
+      }
+      case OBJ_NATIVE: {
+        NativeFn native = AS_NATIVE(callee);
+        // 执行native函数
+        Value result = (*native)(argCount, vm.stackTop - argCount);
+        // native函数不存在执行帧，因此直接将多余的参数和函数本身丢弃，然后将返回值push到栈中
+        vm.stackTop -= argCount + 1;
+        push(result);
+        return true;
+      }
       default:
         break;
     }
@@ -329,6 +358,9 @@ void initVM() {
   vm.objects = NULL;
   initTable(&vm.strings);
   initTable(&vm.globals);
+
+  // 在初始化vm的时候，注入我们的内置函数
+  defineNative("clock", clockNative);
 }
 
 void freeVM() {
