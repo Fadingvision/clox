@@ -30,8 +30,9 @@ typedef struct {
 } CallFrame;
 
 typedef struct {
-  // @TODO:
+  // return address: 利用frames数组的形式记录函数调用的层级关系，当某个层级的函数帧结束之后，就可以立马退出到上一个层级
   CallFrame frames[FRAMES_MAX];
+  // 此时的函数调用栈深度
   int frameCount;
   
   // 运行时参数内存栈

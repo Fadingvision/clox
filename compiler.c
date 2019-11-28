@@ -448,6 +448,31 @@ static void or_(bool canAssign) {
   patchJump(endJump);
 }
 
+static uint8_t argumentList() {
+  uint8_t argCount = 0;
+
+  // 执行参数arguments
+  if (!check(TOKEN_RIGHT_PAREN)) {
+    do {
+      expression();
+      if (argCount == 255) {
+        error("Cannot have more than 255 arguments.");
+      }
+      argCount++;
+    } while (match(TOKEN_COMMA));
+  }
+
+  consume(TOKEN_RIGHT_PAREN, "Expect ')' after arguments.");
+  return argCount;
+}
+
+
+
+static void call(bool canAssign) {
+  uint8_t argCount = argumentList();
+  emitBytes(OP_CALL, argCount);
+}
+
 // -------------------- Pratt Parser -------------------------
 
 // 每种类型对应的解析规则表：
@@ -457,7 +482,7 @@ ParseRule rules[] = {
   { grouping, NULL,    PREC_NONE },       // TOKEN_LEFT_PAREN
 */
 //> Calls and Functions infix-left-paren
-  { grouping, NULL,    PREC_CALL },       // TOKEN_LEFT_PAREN
+  { grouping, call,    PREC_CALL },       // TOKEN_LEFT_PAREN
 //< Calls and Functions infix-left-paren
   { NULL,     NULL,    PREC_NONE },       // TOKEN_RIGHT_PAREN
   { NULL,     NULL,    PREC_NONE },       // TOKEN_LEFT_BRACE [big]

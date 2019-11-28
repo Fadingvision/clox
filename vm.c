@@ -31,11 +31,27 @@ static void runtimeError(const char* format, ...) {
   va_end(args);
   fputs("\n", stderr);
 
-  // 写入出错的行数
-  CallFrame* frame = &vm.frames[vm.frameCount - 1];
-  size_t instruction = frame->ip - frame->function->chunk.code;
-  int line = frame->function->chunk.lines[instruction];
-  fprintf(stderr, "[line %d] in script\n", line);
+  // 简单写入出错的行数
+  // CallFrame* frame = &vm.frames[vm.frameCount - 1];
+  // size_t instruction = frame->ip - frame->function->chunk.code;
+  // int line = frame->function->chunk.lines[instruction];
+  // fprintf(stderr, "[line %d] in script\n", line);
+
+  // 更健壮的错误提示： stack trace
+  for (int i = vm.frameCount - 1; i >= 0; i--) {
+    CallFrame* frame = &vm.frames[i];
+    ObjFunction* function = frame->function;
+    // -1 because the IP is sitting on the next instruction to be
+    // executed.
+    size_t instruction = frame->ip - function->chunk.code - 1;
+    fprintf(stderr, "[line %d] in ",
+            function->chunk.lines[instruction]);
+    if (function->name == NULL) {
+      fprintf(stderr, "script\n");
+    } else {
+      fprintf(stderr, "%s()\n", function->name->chars);
+    }
+  }
 
   resetStack();
 }
@@ -62,6 +78,47 @@ static void concatenate() {
 
   ObjString* result = concatenateString(a, b);
   push(OBJ_VAL(result));
+}
+
+static bool callValue(Value callee, int argCount) {
+  if (IS_OBJ(callee)) {
+    switch (OBJ_TYPE(callee)) {
+      case OBJ_FUNCTION:
+        return call(AS_FUNCTION(callee), argCount);
+        break;
+      
+      default:
+        break;
+    }
+  }
+
+  runtimeError("Can only call functions and classes");
+  return false;
+}
+
+static bool call(ObjFunction* function, int argCount) {
+  // 参数个数校验
+  if (argCount != function->arity) {
+    runtimeError("Expected %d arguments but got %d.",  
+        function->arity, argCount);
+    return false;
+  }
+
+  // 函数堆栈溢出校验，也就是著名的stack overflow
+  if (vm.frameCount == FRAMES_MAX) {
+    runtimeError("Stack overflow.");
+    return false;
+  }
+
+  // 往栈中Push一个调用帧
+  CallFrame* frame = &vm.frames[vm.frameCount++];
+  // 初始化
+  frame->function = function;
+  frame->ip = function->chunk.code;
+
+  // 减去参数的位置和函数自身占用的位置，则到了函数调用开始的位置(见 vm.h 说明)
+  frame->slots = vm.stackTop - argCount - 1;
+  return true;
 }
 
 static InterpretResult run() {
@@ -228,6 +285,17 @@ static InterpretResult run() {
         uint16_t offset = READ_SHORT();
         // 无条件回跳offset字节的指令
         frame->ip -= offset;
+        break;
+      }
+      case OP_CALL: {
+        // 读出参数的个数, 此时栈中[callee, arg1, arg2]
+        // 直到参数的个数，就知道函数在栈中的位置
+        uint16_t offset = READ_BYTE();
+        if (!callValue(peek(argCount), argCount)) {
+          return INTERPRET_RUNTIME_ERROR;
+        }
+        // 当函数执行完之后，我们需要回到上一个函数环境中，继续执行
+        frame = &vm.frames[vm.frameCount - 1];
         break;
       }
     }
