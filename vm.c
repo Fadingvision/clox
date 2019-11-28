@@ -80,22 +80,6 @@ static void concatenate() {
   push(OBJ_VAL(result));
 }
 
-static bool callValue(Value callee, int argCount) {
-  if (IS_OBJ(callee)) {
-    switch (OBJ_TYPE(callee)) {
-      case OBJ_FUNCTION:
-        return call(AS_FUNCTION(callee), argCount);
-        break;
-      
-      default:
-        break;
-    }
-  }
-
-  runtimeError("Can only call functions and classes");
-  return false;
-}
-
 static bool call(ObjFunction* function, int argCount) {
   // 参数个数校验
   if (argCount != function->arity) {
@@ -119,6 +103,22 @@ static bool call(ObjFunction* function, int argCount) {
   // 减去参数的位置和函数自身占用的位置，则到了函数调用开始的位置(见 vm.h 说明)
   frame->slots = vm.stackTop - argCount - 1;
   return true;
+}
+
+static bool callValue(Value callee, int argCount) {
+  if (IS_OBJ(callee)) {
+    switch (OBJ_TYPE(callee)) {
+      case OBJ_FUNCTION:
+        return call(AS_FUNCTION(callee), argCount);
+        break;
+      
+      default:
+        break;
+    }
+  }
+
+  runtimeError("Can only call functions and classes");
+  return false;
 }
 
 static InterpretResult run() {
@@ -202,7 +202,22 @@ static InterpretResult run() {
         break;
       }
       case OP_RETURN: {
-        return INTERPRET_OK;
+        Value result = pop();
+        // 函数出栈
+        vm.frameCount--;
+        if (vm.frameCount == 0) {
+          // 如果已经是顶层了，说明整个程序已经执行完了，pop掉script函数，直接返回
+          pop();
+          return INTERPRET_OK;
+        }
+
+        // 重置栈顶：相当于抛弃所有函数执行期间的参数、局部变量，以及函数本身的值
+        vm.stackTop = frame->slots;
+        // 将函数返回结果入栈，供其他表达式使用
+        push(result);
+        // 当函数执行完之后，我们需要回到上一个包围函数环境中，继续执行
+        frame = &vm.frames[vm.frameCount - 1];
+        break;
       }
       case OP_POP: {
         pop();
@@ -290,11 +305,12 @@ static InterpretResult run() {
       case OP_CALL: {
         // 读出参数的个数, 此时栈中[callee, arg1, arg2]
         // 直到参数的个数，就知道函数在栈中的位置
-        uint16_t offset = READ_BYTE();
+        uint16_t argCount = READ_BYTE();
+        // 往frames中push一个调用帧
         if (!callValue(peek(argCount), argCount)) {
           return INTERPRET_RUNTIME_ERROR;
         }
-        // 当函数执行完之后，我们需要回到上一个函数环境中，继续执行
+        // 将frame替换成当前需要执行的callee的调用帧，下次循环的时候就进入了函数的真正执行
         frame = &vm.frames[vm.frameCount - 1];
         break;
       }

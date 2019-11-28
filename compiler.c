@@ -231,6 +231,8 @@ static void emitLoop(int loopStart) {
 
 // return 指令
 static void emitReturn() {
+  // 手动触发return指令时，需要返回一个默认值：nil
+  emitByte(OP_NIL);
   emitByte(OP_RETURN);
 }
 
@@ -259,8 +261,9 @@ static void emitConstant(Value value) {
   emitBytes(OP_CONSTANT, makeConstant(value));
 }
 
-// 暂时用return指令来结束编译
+// 用return指令来结束当前函数的编译
 static ObjFunction* endCompiler() {
+  // 不管一个函数有没有返回语句，在body结束后我们都默认加一个return指令，用于结束该函数的执行。
   emitReturn();
 
   ObjFunction* function = current->function;
@@ -928,6 +931,21 @@ static void whileStatement() {
   emitByte(OP_POP);
 }
 
+static void returnStatement() {
+  if (current->type == TYPE_SCRIPT) {
+    error("Iegal return statement");
+  }
+
+  // 无返回值
+  if (match(TOKEN_SEMICOLON)) {
+    emitReturn();
+  } else {
+    expression();
+    consume(TOKEN_SEMICOLON, "Expect ';' after return statement.");
+    emitByte(OP_RETURN);
+  }
+}
+
 // statement → exprStmt | forStmt | ifStmt | printStmt | returnStmt | whileStmt | block ;
 static void statement() {
   if (match(TOKEN_PRINT)) {
@@ -936,6 +954,8 @@ static void statement() {
     ifStatement();
   } else if (match(TOKEN_FOR)) {
     forStatement();
+  } else if (match(TOKEN_RETURN)) {
+    returnStatement();
   } else if (match(TOKEN_WHILE)) {
     whileStatement();
   } else if (match(TOKEN_LEFT_BRACE)) {

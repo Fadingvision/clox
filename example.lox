@@ -42,6 +42,8 @@ for (var i = 1; i < 4; i = i + 1) {
 
 fun areWeHavingItYet() {
   print "Yes we are!";
+  return "return value";
 }
 
-print areWeHavingItYet;
+print areWeHavingItYet();
+// print areWeHavingItYet;

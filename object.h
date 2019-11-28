@@ -3,7 +3,7 @@
 
 #include "common.h"
 #include "value.h"
-#include "Chunk.h"
+#include "chunk.h"
 
 // 获取对应的类型
 #define OBJ_TYPE(value) (AS_OBJ(value)->type)
