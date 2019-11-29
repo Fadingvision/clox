@@ -152,10 +152,12 @@ static bool callValue(Value callee, int argCount) {
 
 static InterpretResult run() {
   CallFrame* frame = &vm.frames[vm.frameCount - 1];
+  // 因为在执行过程中，读写ip是一个高频操作，
+  // 使用register指令让编译器尽可能的将ip放入寄存器，加快ip的读写速度
   register uint8_t* ip = frame->ip;
 
   // 从当前函数的调用栈读取一个字节的指令
-  #define READ_BYTE() (*ip)
+  #define READ_BYTE() (*ip++)
   // 位运算
   #define READ_SHORT() (ip += 2, (uint16_t)((ip[-2] << 8) | ip[-1]))
   #define READ_CONSTANT() (frame->function->chunk.constants.values[READ_BYTE()])
@@ -247,6 +249,8 @@ static InterpretResult run() {
         push(result);
         // 当函数执行完之后，我们需要回到上一个包围函数环境中，继续执行
         frame = &vm.frames[vm.frameCount - 1];
+
+        // 恢复ip至上一个函数的ip
         ip = frame->ip;
         break;
       }
@@ -341,9 +345,11 @@ static InterpretResult run() {
         if (!callValue(peek(argCount), argCount)) {
           return INTERPRET_RUNTIME_ERROR;
         }
+        // 保存当前函数的ip位置
         frame->ip = ip;
         // 将frame替换成当前需要执行的callee的调用帧，下次循环的时候就进入了函数的真正执行
         frame = &vm.frames[vm.frameCount - 1];
+        // 将ip指向新的函数调用的ip地址
         ip = frame->ip;
         break;
       }
