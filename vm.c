@@ -152,11 +152,12 @@ static bool callValue(Value callee, int argCount) {
 
 static InterpretResult run() {
   CallFrame* frame = &vm.frames[vm.frameCount - 1];
+  register uint8_t* ip = frame->ip;
 
   // 从当前函数的调用栈读取一个字节的指令
-  #define READ_BYTE() (*frame->ip++)
+  #define READ_BYTE() (*ip)
   // 位运算
-  #define READ_SHORT() (frame->ip += 2, (uint16_t)((frame->ip[-2] << 8) | frame->ip[-1]))
+  #define READ_SHORT() (ip += 2, (uint16_t)((ip[-2] << 8) | ip[-1]))
   #define READ_CONSTANT() (frame->function->chunk.constants.values[READ_BYTE()])
   #define READ_STRING() AS_STRING(READ_CONSTANT())
   #define BINARY_OP(valueType, op) \
@@ -246,6 +247,7 @@ static InterpretResult run() {
         push(result);
         // 当函数执行完之后，我们需要回到上一个包围函数环境中，继续执行
         frame = &vm.frames[vm.frameCount - 1];
+        ip = frame->ip;
         break;
       }
       case OP_POP: {
@@ -314,21 +316,21 @@ static InterpretResult run() {
         // 此时的条件表达式产生的值应该在栈顶，
         // 如果该条件为假，则跳过offset字节的指令
         // 条件为真，则这offset个字节的指令会正常执行
-        if (!toBool(peek(0))) frame->ip += offset;
+        if (!toBool(peek(0))) ip += offset;
         break;
       }
       case OP_JUMP: {
         // 读出跳过的字节大小
         uint16_t offset = READ_SHORT();
         // 无条件跳过offset字节的指令
-        frame->ip += offset;
+        ip += offset;
         break;
       }
       case OP_LOOP: {
         // 读出回跳的字节大小
         uint16_t offset = READ_SHORT();
         // 无条件回跳offset字节的指令
-        frame->ip -= offset;
+        ip -= offset;
         break;
       }
       case OP_CALL: {
@@ -339,8 +341,10 @@ static InterpretResult run() {
         if (!callValue(peek(argCount), argCount)) {
           return INTERPRET_RUNTIME_ERROR;
         }
+        frame->ip = ip;
         // 将frame替换成当前需要执行的callee的调用帧，下次循环的时候就进入了函数的真正执行
         frame = &vm.frames[vm.frameCount - 1];
+        ip = frame->ip;
         break;
       }
     }
