@@ -52,6 +52,7 @@ static void runtimeError(const char* format, ...) {
     ObjFunction* function = frame->function;
     // -1 because the IP is sitting on the next instruction to be
     // executed.
+    // FIXME: restore register ip into frame's ip
     size_t instruction = frame->ip - function->chunk.code - 1;
     fprintf(stderr, "[line %d] in ",
             function->chunk.lines[instruction]);
@@ -186,7 +187,7 @@ static InterpretResult run() {
       }
       printf("\n");
       // DEBUG: 打印待执行的指令
-      disassembleInstruction(&frame->function->chunk, (int)(frame->ip - frame->function->chunk.code));
+      disassembleInstruction(&frame->function->chunk, (int)(ip - frame->function->chunk.code));
     #endif
 
     uint8_t instruction;
