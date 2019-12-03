@@ -31,6 +31,11 @@ void freeObject(Obj* object) {
       FREE(ObjFunction, object);
       break;
     }
+    case OBJ_CLOSURE: {
+      // free对象本身
+      FREE(objClosure, object);
+      break;
+    }
     case OBJ_NATIVE: {
       FREE(ObjNative, object);
       break;

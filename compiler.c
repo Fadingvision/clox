@@ -763,7 +763,8 @@ static void function(FunctionType type) {
   block();
   
   ObjFunction* function = endCompiler();
-  emitBytes(OP_CONSTANT, makeConstant(OBJ_VAL(function)));
+  // 定义一个闭包，为了统一处理，默认将所有函数都视为闭包处理（TODO: 待优化）
+  emitBytes(OP_CLOSURE, makeConstant(OBJ_VAL(function)));
 }
 
 // func → "fun" IDENTIFIER? "(" parameters? ")" block ;

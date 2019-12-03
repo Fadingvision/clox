@@ -31,6 +31,12 @@ ObjFunction* newFunction() {
   return function;
 }
 
+ObjClosure* newClosure(ObjFunction* function) {
+  ObjClosure* closure = ALLOCATE_OBJ(ObjClosure, OBJ_CLOSURE);
+  closure->function = function;
+  return closure;
+}
+
 // 初始化一个内置函数
 ObjNative* newNative(NativeFn function) {
   ObjNative* native = ALLOCATE_OBJ(ObjNative, OBJ_NATIVE);
@@ -130,6 +136,9 @@ void printObject(Value value) {
     break;
   case OBJ_FUNCTION:
     printFunction(AS_FUNCTION(value));
+    break;
+  case OBJ_CLOSURE:
+    printFunction(AS_CLOSURE(value)->function);
     break;
   case OBJ_NATIVE:
     printf("<native fn>");

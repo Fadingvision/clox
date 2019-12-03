@@ -55,6 +55,8 @@ fun fib(n) {
 // print fib(35);
 // print clock() - start;
 
+
+// closures
 var glb = "global";
 
 fun wrapper() {
@@ -70,3 +72,20 @@ fun wrapper() {
 
 var c = wrapper();
 c();
+
+// Objects are a poor man's closure
+fun constructor() {
+  var x;
+  var y;
+
+  fun setCoordinates(xVal, yVal) {
+    x = xVal;
+    y = yVal;
+  }
+
+  fun addCoordinates() {
+    return x + y;
+  }
+
+  return setCoordinates;
+}

@@ -17,7 +17,7 @@ typedef enum {
 // CallFrame代表一个正在进行的函数调用
 typedef struct {
   // 正在执行的函数
-  ObjFunction* function;
+  ObjClosure* closure;
   // 函数体指令集
   uint8_t* ip;
   /* 

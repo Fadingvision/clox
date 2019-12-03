@@ -49,7 +49,7 @@ static void runtimeError(const char* format, ...) {
   // 更健壮的错误提示： stack trace
   for (int i = vm.frameCount - 1; i >= 0; i--) {
     CallFrame* frame = &vm.frames[i];
-    ObjFunction* function = frame->function;
+    ObjFunction* function = frame->closure->function;
     // -1 because the IP is sitting on the next instruction to be
     // executed.
     // FIXME: restore register ip into frame's ip
@@ -101,11 +101,11 @@ static void concatenate() {
   push(OBJ_VAL(result));
 }
 
-static bool call(ObjFunction* function, int argCount) {
+static bool call(ObjClosure* closure, int argCount) {
   // 参数个数校验
-  if (argCount != function->arity) {
+  if (argCount != closure->function->arity) {
     runtimeError("Expected %d arguments but got %d.",  
-        function->arity, argCount);
+        closure->function->arity, argCount);
     return false;
   }
 
@@ -118,8 +118,8 @@ static bool call(ObjFunction* function, int argCount) {
   // 往栈中Push一个调用帧
   CallFrame* frame = &vm.frames[vm.frameCount++];
   // 初始化
-  frame->function = function;
-  frame->ip = function->chunk.code;
+  frame->closure = closure;
+  frame->ip = closure->function->chunk.code;
 
   // 减去参数的位置和函数自身占用的位置，则到了函数调用开始的位置(见 vm.h 说明)
   frame->slots = vm.stackTop - argCount - 1;
@@ -129,8 +129,8 @@ static bool call(ObjFunction* function, int argCount) {
 static bool callValue(Value callee, int argCount) {
   if (IS_OBJ(callee)) {
     switch (OBJ_TYPE(callee)) {
-      case OBJ_FUNCTION: {
-        return call(AS_FUNCTION(callee), argCount);
+      case OBJ_CLOSURE: {
+        return call(AS_CLOSURE(callee), argCount);
         break;
       }
       case OBJ_NATIVE: {
@@ -161,7 +161,7 @@ static InterpretResult run() {
   #define READ_BYTE() (*ip++)
   // 位运算
   #define READ_SHORT() (ip += 2, (uint16_t)((ip[-2] << 8) | ip[-1]))
-  #define READ_CONSTANT() (frame->function->chunk.constants.values[READ_BYTE()])
+  #define READ_CONSTANT() (frame->closure->function->chunk.constants.values[READ_BYTE()])
   #define READ_STRING() AS_STRING(READ_CONSTANT())
   #define BINARY_OP(valueType, op) \
     do { \
@@ -187,7 +187,7 @@ static InterpretResult run() {
       }
       printf("\n");
       // DEBUG: 打印待执行的指令
-      disassembleInstruction(&frame->function->chunk, (int)(ip - frame->function->chunk.code));
+      disassembleInstruction(&frame->closure->function->chunk, (int)(ip - frame->closure->function->chunk.code));
     #endif
 
     uint8_t instruction;
@@ -354,6 +354,13 @@ static InterpretResult run() {
         ip = frame->ip;
         break;
       }
+      case OP_CLOSURE: {
+        ObjFunction* function = AS_FUNCTION(READ_CONSTANT());
+        // 将函数包装到一个闭包对象中入栈
+        ObjClosure* closure = newClosure(function);
+        push(OBJ_VAL(closure));
+        break;
+      }
     }
   }
 
@@ -392,14 +399,22 @@ InterpretResult interpret(const char* source) {
     Note: 我们的局部变量都是通过该偏移量去获取的，因此locals的位置和stack中的位置必须保持一致
     因为在编译时已经将该函数名推入了locals中。所以这里必须将函数的值也推入stack中，以保持两个数组的偏移量一致
   */
-  // 将顶级匿名函数入栈
   push(OBJ_VAL(function));
+
   // 初始化第一个调用帧，也就是顶级函数
-  CallFrame* frame = &vm.frames[vm.frameCount++];
-  frame->function = function;
-  frame->ip = function->chunk.code;
-  // 此时函数栈的底部应该等于整个执行栈的底部
-  frame->slots = vm.stack;
+  ObjClosure* closure = newClosure(function);
+  // push之后pop是为了之后的垃圾回收
+  pop();
+  // 将顶级匿名闭包函数入栈
+  push(OBJ_VAL(closure));
+  // 调用（也就是将其插入调用帧）
+  callValue(OBJ_VAL(closure), 0);
+
+  // CallFrame* frame = &vm.frames[vm.frameCount++];
+  // frame->function = function;
+  // frame->ip = function->chunk.code;
+  // // 此时函数栈的底部应该等于整个执行栈的底部
+  // frame->slots = vm.stack;
 
   // 执行字节码
   InterpretResult result = run();
