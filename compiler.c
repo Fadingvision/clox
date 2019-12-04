@@ -41,7 +41,18 @@ typedef struct {
   Token name;
   // 变量所在的块级作用域深度
   int depth;
+  // 标明是否有子函数引用了该变量，导致该变量成为了一个闭包变量
+  // 这进一步决定了当该变量的值在stack中去除的时候，我们是否应该生成一个ObjUpvalue，将其放入栈中
+  bool isCaptured;
 } Local;
+
+// 闭包变量
+typedef struct {
+  // index 指向该闭包变量在slots和locals中的index(偏移量)
+  uint8_t index;
+  // isLocal 标明该闭包变量引用的是一个局部变量(true)还是另外一个闭包变量(false)
+  bool isLocal;
+} Upvalue;
 
 typedef enum {
   TYPE_FUNCTION,
@@ -60,6 +71,8 @@ typedef struct Compiler {
   Local locals[UINT8_COUNT];
   // 变量个数
   int localCount;
+  // 闭包环境变量数组
+  Upvalue upvalues[UINT8_COUNT];
   // 当前正在编译的块级作用域的深度，默认为0即全局作用域
   int scopeDepth;
 } Compiler;
@@ -101,6 +114,7 @@ static void initCompiler(Compiler* compiler, FunctionType type) {
   // 将第一个变量写为空，作为全局作用域（函数）的名字
   Local* local = &current->locals[current->localCount++];
   local->depth = 0;
+  local->isCaptured = false;
   local->name.start = "";
   local->name.length = 0;
 }
@@ -306,7 +320,7 @@ static void number(bool canAssign) {
   emitConstant(NUMBER_VAL(value));
 }
 
-// 从块级作用域去找该变量
+// 从局部作用域去找该变量
 static int resolveLocal(Compiler* compiler, Token* name) {
   // 从locals一层一层的往上找，直到找到名字相同的变量，返回其在locals中的位置index
   for (int i = compiler->localCount - 1; i >= 0; i--) {
@@ -322,19 +336,74 @@ static int resolveLocal(Compiler* compiler, Token* name) {
   return -1;
 }
 
+// 添加或找到一个upvalue(闭包变量), 返回其在upvalues数组中的位置
+static int addUpvalue(Compiler* compiler, uint8_t index, bool isLocal) {
+  int upvalueCount = compiler->function->upvalueCount;
+  // 因为一个函数中可以多次引用该闭包变量，
+  // 因此在添加一个新的upvalue之前，尝试找到之前已经生成过相同的闭包变量
+  for (int i = 0; i < upvalueCount; i++) {
+    Upvalue* upvalue = &compiler->upvalues[i];
+    if (upvalue->index == index && upvalue->isLocal == isLocal) {
+      return i;
+    }
+  }
+
+  if (upvalueCount == UINT8_COUNT) {
+    error("Too many closure variables in this function");
+    return 0;
+  }
+
+  // 添加一个upvalue
+  compiler->upvalues[upvalueCount].isLocal = isLocal;
+  compiler->upvalues[upvalueCount].index = index;
+  return compiler->function->upvalueCount++;
+}
+
+// 解析闭包变量, 返回其在upvalues数组中的位置作为指令操作数
+static int resolveUpvalue(Compiler* compiler, Token* name) {
+  // 如果已经在顶级作用域内，也就不存在闭包环境了
+  if (compiler->enclosing == NULL) return -1;
+
+  // 首先在闭包环境中的局部变量中去找
+  int local = resolveLocal(compiler->enclosing, name);
+  if (local != -1) {
+    // 将该变量置为一个闭包变量
+    compiler->enclosing->locals[local].isCaptured = true;
+    // 如果在闭包环境中找到了该变量，则为该函数添加一个闭包环境变量(upvalue)
+    return addUpvalue(compiler, (uint8_t)local, true);
+  }
+
+  // 然后在闭包环境中的父环境中去递归寻找，直到没有父环境为止
+  int upvalue = resolveUpvalue(compiler->enclosing, name);
+  if (local != -1) {
+    // 如果在闭包环境中找到了该变量，则为该函数添加一个闭包环境变量(upvalue)
+    // note: 注意这儿只要在父环境中存在这样一个变量
+    // 那么这个父环境 -> 引用这个变量的子环境中间所有的函数都会在其upvalues中添加这个upvalue
+    // 注意这isLocal被置为了false, 标明这个upvalue是一个引用upvalue的值，index值也变成了在upvalues中的index值
+    return addUpvalue(compiler, (uint8_t)upvalue, false);
+  }
+
+  return -1;
+}
+
 // assignment → ( call "." )? IDENTIFIER "=" assignment
 static void namedVariable(Token name, bool canAssign) {
   uint8_t getOp, setOp;
   // 首先尝试从块级作用域去找该变量
   // 局部: arg为在locals中的位置
-  // 全局: arg为在constants中的位置
   int arg = resolveLocal(current, &name);
 
-  // 变量找到
+  // 变量在当前的块级作用域找到
   if (arg != -1) {
     getOp = OP_GET_LOCAL;
     setOp = OP_SET_LOCAL;
+  } else if ((arg = resolveUpvalue(current, &name)) != -1) {
+    // 在闭包环境中找到
+    // 闭包变量：此时的arg为在upvalues中的位置
+    getOp = OP_GET_UPVALUE;
+    setOp = OP_SET_UPVALUE;
   } else {
+    // 全局变量: arg为在constants中的位置
     arg = identifierConstant(&name);
     getOp = OP_GET_GLOBAL;
     setOp = OP_SET_GLOBAL;
@@ -633,6 +702,8 @@ static void addLocal(Token name) {
   // 此时变量还未完成初始化，将其设为-1, 如果在初始化表达式中引用了该变量，则报错
   // eg: var a = a;
   local->depth = -1;
+  // 默认不为闭包变量，就是普通变量
+  local->isCaptured = false;
 }
 
 static bool isIdentifierEqual(Token* a, Token* b) {
@@ -722,8 +793,13 @@ static void endScope() {
   // 从当前作用域退出时，删除该作用域的中的变量，同时也就是去除stack中的临时变量
   while (current->localCount > 0 &&
          current->locals[current->localCount - 1].depth > current->scopeDepth) {
-    // 由于在退出作用域时，stack中还持有声明变量时的变量值，因此需要依次删除这些值
-    emitByte(OP_POP);
+    // 对于闭包变量，需要将其持久化之后，才能删除，以便闭包函数的持久访问
+    if (current->locals[current->localCount - 1].isCaptured) {
+      emitByte(OP_CLOSE_UPVALUE);
+    } else {
+      // 对于普通变量，我们直接删除
+      emitByte(OP_POP);
+    }
     current->localCount--;
   }
 }
@@ -765,6 +841,11 @@ static void function(FunctionType type) {
   ObjFunction* function = endCompiler();
   // 定义一个闭包，为了统一处理，默认将所有函数都视为闭包处理（TODO: 待优化）
   emitBytes(OP_CLOSURE, makeConstant(OBJ_VAL(function)));
+
+  // OP_CLOSURE是一个不定长指令，后面每一对字节都代表一个当前函数所持有的可引用的闭包变量
+  for (int i = 0; i < function->upvalueCount; i++) {
+    emitBytes(compiler.upvalues[i].isLocal ? 1 : 0, compiler.upvalues[i].index);
+  }
 }
 
 // func → "fun" IDENTIFIER? "(" parameters? ")" block ;

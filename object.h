@@ -21,7 +21,7 @@
 // 函数断言
 #define AS_FUNCTION(value)       (((ObjFunction*)AS_OBJ(value)))
 // 闭包断言
-#define AS_CLOSURE(value)       ((ObjClosure*)AS_OBJ(value))
+#define AS_CLOSURE(value)       (((ObjClosure*)AS_OBJ(value)))
 // 内置函数断言
 #define AS_NATIVE(value)       (((ObjNative*)AS_OBJ(value))->function)
 
@@ -30,6 +30,7 @@ typedef enum {
   OBJ_STRING,
   OBJ_FUNCTION,
   OBJ_CLOSURE,
+  OBJ_UPVALUE,
   OBJ_NATIVE,
 } ObjType;
 
@@ -44,16 +45,34 @@ struct sObj {
 typedef struct {
   Obj obj;
   int arity;        // 函数参数数量
+  int upvalueCount; // 函数的闭包变量的个数
   Chunk chunk;      // 函数体对应的指令集
   ObjString* name;  // 函数名
 } ObjFunction;
+
+// 一个upvalue值，该值存在堆中，用于记录闭包变量
+// 当stack中的value引用消失后，确保我们的闭包函数仍然能够访问该变量
+typedef struct sUpvalue {
+  Obj obj;
+  // value的指针地址，指向stack中的Value(持久化之前)，或者指向closed(持久化之后)
+  Value* location;
+  // 用于stack中的值消失后，持久化保存该变量的值
+  Value closed;
+  // 为了保证每一个闭包变量对应一个唯一的ObjUpvalue,
+  // 我们需要追踪所有的ObjUpvalue(按指针大小排序的单链表)，在新增之前，我们需要遍历该链表来确保没有一个相同的值存在
+  struct sUpvalue* next;
+} ObjUpvalue;
 
 
 // 闭包函数
 typedef struct {
   Obj obj;
   ObjFunction* function;
-} objClosure;
+  // 指向该闭包函数引用的upvalue数组
+  ObjUpvalue** upvalues;
+  // 数组的长度
+  int upvalueCount;
+} ObjClosure;
 
 // 定义一个NativeFn类型
 // 这个类型为Value func(int argCount, Value* args)这种函数的指针类型
@@ -102,8 +121,13 @@ ObjString* concatenateString(ObjString*, ObjString*);
 
 // 初始化新的函数对象
 ObjFunction* newFunction();
+// 初始化新的闭包函数对象
 ObjClosure* newClosure(ObjFunction* function);
+// 初始化native函数
 ObjNative* newNative(NativeFn function);
+
+// 初始化新的upvalue
+ObjUpvalue* newUpvalue(Value* slot);
 
 void printObject(Value value);
 

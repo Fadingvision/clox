@@ -40,7 +40,9 @@ typedef struct {
   // 栈顶，默认指向下一个需要存储的位置
   Value* stackTop;
   // 堆内存，用于内存回收
-  Obj* objects;
+  Obj* objects; 
+  // openUpvalues链表的head, 用于追踪upValues，来确保唯一性
+  ObjUpvalue* openUpvalues;
   // 用于存储用户所定义的字符串
   Table strings;
   // 全局变量

@@ -26,6 +26,7 @@ static void resetStack() {
   // 将栈顶指向数组初始的第一个位置为清空栈
   vm.stackTop = vm.stack;
   vm.frameCount = 0;
+  vm.openUpvalues = NULL;
 }
 
 // c的可变长参数函数
@@ -121,7 +122,7 @@ static bool call(ObjClosure* closure, int argCount) {
   frame->closure = closure;
   frame->ip = closure->function->chunk.code;
 
-  // 减去参数的位置和函数自身占用的位置，则到了函数调用开始的位置(见 vm.h 说明)
+  // 减去参数的位置和函数自身占用的位置，则将其重置为函数调用开始的位置(见 vm.h 说明)
   frame->slots = vm.stackTop - argCount - 1;
   return true;
 }
@@ -149,6 +150,70 @@ static bool callValue(Value callee, int argCount) {
 
   runtimeError("Can only call functions and classes");
   return false;
+}
+
+// 新建一个ObjUpvalue*
+static ObjUpvalue* captureUpvalue(Value* local) {
+  /* 
+    Note: 如果直接新建，在下面这种情况下，每个a会在f和g中创建两个ObjUpvalue, 这破坏了ObjUpvalue的唯一性
+    fun main{
+      var a = 1;
+      fun f() {
+        print a;
+      }
+      fun g() {
+        print a;
+      }
+    }
+   */
+
+  // 因此每次创建新的ObjUpvalue之前，都必须循环链表来查找是否已经有了一个指向同样Value的ObjUpvalue
+  ObjUpvalue* preUpvalue = NULL;
+  ObjUpvalue* upvalue = vm.openUpvalues;
+  /* 
+    三种情况退出while：
+    1. upvalue指向地址和我们查找的地址一致, 代表我们已经找到了一个可以复用的值
+    2. 已经到了链表尾部，遍历了所有的值都没有找到
+    3. 找到一个Upvalue指向的地址小于我们寻找的地址，因为我们的链表是有序的(地址从大到小), 
+      则代表之后循环的upvalue的地址只会更小，那么说明已经不存在一个可以复用的值了。
+  */
+  while (upvalue != NULL && upvalue->location > local) {
+    preUpvalue = upvalue;
+    upvalue = upvalue->next;
+  }
+
+  // 复用upvalue
+  if (upvalue != NULL && upvalue->location == local) {
+    return upvalue;
+  }
+
+  // 创建一个新的ObjUpvalue
+  ObjUpvalue* createdUpvalue = newUpvalue(local);
+  // 修复链表, 将新创建的值放入 preUpvalue 和 upvalue 之间
+  createdUpvalue->next = upvalue;
+  if (preUpvalue == NULL) {
+    // 如果整个链表只有一个值，那直接插入头部
+    vm.openUpvalues = createdUpvalue;
+  } else {
+    preUpvalue->next = createdUpvalue;
+  }
+
+  return createdUpvalue;
+}
+
+// close也就是持久化所有大于等于last位置的闭包变量
+// 并将其从链表中去除（因为持久化之后该变量也就从stack中消失了，不能用于复用了）
+static void closeUpvalues(Value* last) {
+  while (vm.openUpvalues != NULL &&
+    vm.openUpvalues->location >= last) {
+      ObjUpvalue* upvalue = vm.openUpvalues;
+      // 将Value的值存入一个新的closed字段，这个字段随着Obj对象一起保存在堆内存中，持久存在
+      upvalue->closed = *upvalue->location;
+      // 然后将location指向closed, 这样即使原来的stack中的值不存在了
+      // 依然可以通过location来获取该值
+      upvalue->location = &upvalue->closed;
+      vm.openUpvalues = upvalue->next;
+    }
 }
 
 static InterpretResult run() {
@@ -236,6 +301,10 @@ static InterpretResult run() {
       }
       case OP_RETURN: {
         Value result = pop();
+        
+        // 当一个函数执行完之后，其中所有的闭包变量都应该被close(也就是持久化)
+        closeUpvalues(frame->slots);
+
         // 函数出栈
         vm.frameCount--;
         if (vm.frameCount == 0) {
@@ -256,6 +325,27 @@ static InterpretResult run() {
         break;
       }
       case OP_POP: {
+        pop();
+        break;
+      }
+      case OP_GET_UPVALUE: {
+        // 在upvalues中的位置
+        uint8_t slot = READ_BYTE();
+        // 在upvalues中的location也就是stack中的Value的指针，用*取值，推入栈中
+        push(*frame->closure->upvalues[slot]->location);
+        break;
+      }
+      case OP_SET_UPVALUE: {
+        // 在upvalues中的位置
+        uint8_t slot = READ_BYTE();
+        // 在upvalues中的location也就是stack中的Value的指针，对其进行赋值
+        *frame->closure->upvalues[slot]->location = peek(0);
+        break;
+      }
+      case OP_CLOSE_UPVALUE: {
+        // 将这个闭包变量(此时在栈中的位置为vm.stackTop - 1)放入堆中，方便持久使用
+        closeUpvalues(vm.stackTop - 1);
+        // 利用完之后，将其正常地从stack中移除
         pop();
         break;
       }
@@ -359,6 +449,24 @@ static InterpretResult run() {
         // 将函数包装到一个闭包对象中入栈
         ObjClosure* closure = newClosure(function);
         push(OBJ_VAL(closure));
+
+        // 将该闭包函数所有的upvalues(编译时)写入runtime对应的closure对象中的upvalues数组(runtime)
+        for (int i = 0; i < closure->upvalueCount; i++) {
+          uint8_t isLocal = READ_BYTE();
+          uint8_t index = READ_BYTE();
+
+          // 如果该upvalue引用的是一个stack中的值，则需要新建一个ObjUpvalue值用于在stack中的值释放之后使用
+          // 相反，如果该upvalue引用的是另一个upvalue，那么它引用的肯定是当前父环境的upvalue，直接复用其地址，相当于不用新建一个ObjUpvalue
+
+          // Note: 这是很重要的一点，必须保证每一个闭包变量对应的是唯一的一个ObjUpvalue, 
+          // 不然当多个闭包函数对同一个变量进行引用以及分别赋值的时候，不会发生错乱，从而保证他们始终都引用的是同一个闭包变量
+          if (isLocal) {
+            closure->upvalues[i] = captureUpvalue(frame->slots + index);
+          } else {
+            closure->upvalues[i] = frame->closure->upvalues[index];
+          }
+        }
+        
         break;
       }
     }
