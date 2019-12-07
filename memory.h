@@ -2,6 +2,7 @@
 #define clox_memory_h                    
 
 #include "object.h"
+#include "table.h"
 
 #define GROW_CAPACITY(capacity) \
   ((capacity) < 8 ? 8 : (capacity) * 2)
@@ -20,6 +21,10 @@
     (type*)reallocate(NULL, 0, sizeof(type) * (count))
 
 void* reallocate(void* previous, size_t oldSize, size_t newSize);
+void markValue(Value value);
+void markObject(Obj* obj);
+void markTable(Table* table);
+void collectGarbage();
 void freeObjects();
 void freeObject(Obj* object);
 

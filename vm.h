@@ -47,6 +47,16 @@ typedef struct {
   Table strings;
   // 全局变量
   Table globals;
+
+  // 垃圾回收的灰色对象栈，见memory.c
+  int grayCount;
+  int grayCapacity;
+  Obj** grayStack;
+
+  // vm总共分配的堆内存
+  size_t bytesAllocated;
+  //
+  size_t nextGC;
 } VM;
 
 void initVM();

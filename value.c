@@ -19,7 +19,7 @@ void writeValueArray(ValueArray* array, Value value) {
       oldCapacity, array->capacity);
   }
 
-  array->values[array->count] = value;  
+  array->values[array->count] = value;
   array->count++;
 }
 

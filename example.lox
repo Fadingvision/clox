@@ -51,9 +51,9 @@ fun fib(n) {
 }
 
 // 计算35的斐波那契数列需要的时间(s)，macbook pro(2018)大约消耗：4.55s
-// var start = clock();
-// print fib(35);
-// print clock() - start;
+var start = clock();
+print fib(35);
+print clock() - start;
 
 // closures
 // function with closure

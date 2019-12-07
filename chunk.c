@@ -2,6 +2,7 @@
 
 #include "chunk.h"
 #include "memory.h"
+#include "vm.h"
 #include "value.h"
 
 void initChunk(Chunk* chunk) {
@@ -35,7 +36,14 @@ void freeChunk(Chunk* chunk) {
 }
 
 int addConstant(Chunk* chunk, Value value) {
+  // GC的边界情况：因为在writeValueArray中，正式将Value写入constants数组之前，
+  // 如果在写入数组之前发现constants数组空间不足，需要重新分配空间
+  // 这个时候就有可能触发一次垃圾回收，但这个时候value是一个没有宿主的情况，垃圾回收就会将其回收掉
+  // 那么value就会变成一个空值，从而引起bug,
+  // 因此我们简单的将其出入栈，保持其引用，使其不会被垃圾回收所回收
+  push(value);
   writeValueArray(&chunk->constants, value);
+  pop();
   return chunk->constants.count - 1;
 }
 

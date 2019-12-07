@@ -161,3 +161,12 @@ bool tableDelete(Table* table, ObjString* key) {
   return true;
 }
 
+void tableRemoveWhite(Table* table) {
+  for (int i = 0; i < table->capacity; i++) {
+    Entry* entry = &table->entries[i];
+    // 如果键值即将被回收，则直接删除该键值对
+    if (entry->key != NULL && !entry->key->obj.isMarked) {
+      tableDelete(table, entry->key);
+    }
+  }
+}

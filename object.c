@@ -13,10 +13,16 @@
 static Obj* allocateObject(size_t size, ObjType type) {
   Obj* object = (Obj*)reallocate(NULL, 0, size);
   object->type = type;
+  object->isMarked = false;
 
   // 每次分配一个对象的内存，将其放入链表的头部
   object->next = vm.objects;
   vm.objects = object;
+
+  // debug模式下，每次分配新的对象之后都打印该对象的内存信息
+  #ifdef DEBUG_LOG_GC
+    printf("%p allocate %ld for %d\n", (void*)object, size, type);
+  #endif
 
   return object;
 }
@@ -91,8 +97,13 @@ static ObjString* allocateString(const char* chars, int length) {
   string->chars[length] = '\0';
   string->length = length;
 
+  // GC边界：同理tableSet扩容时可能会触发垃圾回收，因此在set之前需要将ObjString保持引用
+  push(OBJ_VAL(string));
+
   // 每次生成一个字符串的时候，都将string对象收集到hashTable中
   tableSet(&vm.strings, string, NIL_VAL);
+
+  pop();
 
   return string;
 }
@@ -119,8 +130,13 @@ ObjString* concatenateString(ObjString* a, ObjString* b) {
     return interned;
   }
 
+  // GC边界：同理tableSet扩容时可能会触发垃圾回收，因此在set之前需要将ObjString保持引用
+  push(OBJ_VAL(string));
+
   // 每次生成一个字符串的时候，都将string对象收集到hashTable中
   tableSet(&vm.strings, string, NIL_VAL);
+
+  pop();
 
   return string;
 }

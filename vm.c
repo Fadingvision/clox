@@ -88,17 +88,22 @@ static bool toBool(Value value) {
 }
 
 static void concatenate() {
-  ObjString* b = AS_STRING(pop());
-  ObjString* a = AS_STRING(pop());
+  ObjString* b = AS_STRING(peek(0));
+  ObjString* a = AS_STRING(peek(1));
 
   // 把a和b的字符串拷贝到一个新的字符串中
   // int length = a->length + b->length;
   // char* chars = ALLOCATE(char, length + 1);
   // memcpy(chars, a->chars, a->length);
   // memcpy(chars + a->length, b->chars, b->length);
-  // chars[length] = '\0';
+  // chars[length] = '\0';  
 
   ObjString* result = concatenateString(a, b);
+
+  // GC edge-case:
+  pop();
+  pop();
+
   push(OBJ_VAL(result));
 }
 
@@ -482,6 +487,12 @@ static InterpretResult run() {
 void initVM() {
   resetStack();
   vm.objects = NULL;
+  vm.bytesAllocated = 0;
+  // 初始化的回收阈值为1MB的内存
+  vm.nextGC = 1024 * 1024;
+  vm.grayCount = 0;
+  vm.grayCapacity = 0;
+  vm.grayStack = NULL;
   initTable(&vm.strings);
   initTable(&vm.globals);
 
@@ -511,7 +522,7 @@ InterpretResult interpret(const char* source) {
 
   // 初始化第一个调用帧，也就是顶级函数
   ObjClosure* closure = newClosure(function);
-  // push之后pop是为了之后的垃圾回收
+  // GC边界情况：因为newClosure可能会触发垃圾回收，push之后pop是为了将function对象放入栈中保持其引用，避免其被意外的free掉
   pop();
   // 将顶级匿名闭包函数入栈
   push(OBJ_VAL(closure));

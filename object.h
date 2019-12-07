@@ -37,6 +37,8 @@ typedef enum {
 // 相当于对象的base class，每个obj都有一个类型
 struct sObj {
   ObjType type;
+  // for gc: 标识该对象是否是可以引用的，如果可以引用该对象则不能被回收
+  bool isMarked;
   // 单链表，指向下一个sObj
   struct sObj* next;
 };
