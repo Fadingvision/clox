@@ -729,6 +729,9 @@ static bool isIdentifierEqual(Token* a, Token* b) {
 
 // 声明一个局部变量
 static void declareVariable() {
+  // 如果是全局环境，自动返回
+  if (current->scopeDepth == 0) return;
+
   Token* name = &parser.previous;
 
   // 检测当前作用域内是否存在同名变量
