@@ -4,6 +4,7 @@
 #include "common.h"
 #include "value.h"
 #include "chunk.h"
+#include "table.h"
 
 // 获取对应的类型
 #define OBJ_TYPE(value) (AS_OBJ(value)->type)
@@ -13,6 +14,8 @@
 #define IS_FUNCTION(value)  isObjType(value, OBJ_FUNCTION)
 #define IS_CLOSURE(value)   isObjType(value, OBJ_CLOSURE)
 #define IS_NATIVE(value)    isObjType(value, OBJ_NATIVE)
+#define IS_CLASS(value)     isObjType(value, OBJ_CLASS)
+#define IS_INSTANCE(value)  isObjType(value, OBJ_INSTANCE)
 
 // 对Obj进行断言得到ObjString
 #define AS_STRING(value)        ((ObjString*)AS_OBJ(value))
@@ -24,6 +27,10 @@
 #define AS_CLOSURE(value)       (((ObjClosure*)AS_OBJ(value)))
 // 内置函数断言
 #define AS_NATIVE(value)       (((ObjNative*)AS_OBJ(value))->function)
+// 类
+#define AS_CLASS(value)         ((ObjClass*)AS_OBJ(value))
+// 实例
+#define AS_INSTANCE(value)      ((ObjInstance*)AS_OBJ(value))
 
 // 对象的类型
 typedef enum {
@@ -32,6 +39,8 @@ typedef enum {
   OBJ_CLOSURE,
   OBJ_UPVALUE,
   OBJ_NATIVE,
+  OBJ_CLASS,
+  OBJ_INSTANCE,
 } ObjType;
 
 // 相当于对象的base class，每个obj都有一个类型
@@ -87,6 +96,21 @@ typedef struct {
 } ObjNative;
 
 
+typedef struct sObjClass {
+  Obj obj;
+  // 函数名
+  ObjString* name;
+} ObjClass;
+
+// 类的实例
+typedef struct {
+  Obj obj;
+  // 类（类似于constructor）
+  ObjClass* klass;
+  // 类的属性
+  Table fields;
+} ObjInstance;
+
 // 子类：字符串对象
 /*
   NOTE: 
@@ -127,9 +151,12 @@ ObjFunction* newFunction();
 ObjClosure* newClosure(ObjFunction* function);
 // 初始化native函数
 ObjNative* newNative(NativeFn function);
-
 // 初始化新的upvalue
 ObjUpvalue* newUpvalue(Value* slot);
+// 初始化新的Class对象
+ObjClass* newClass(ObjString* name);
+// 初始化新的实例对象
+ObjInstance* newInstance(ObjClass* klass);
 
 void printObject(Value value);
 

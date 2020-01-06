@@ -87,3 +87,12 @@ counter(); // "2".
 
 //   return setCoordinates;
 // }
+
+
+// 类
+class Pairs {}
+
+var pair = Pairs();
+pair.first = 1;
+pair.second = 2;
+print pair.first + pair.second; // 3.

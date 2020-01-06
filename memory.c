@@ -77,6 +77,18 @@ void freeObject(Obj* object) {
       FREE(ObjNative, object);
       break;
     }
+    case OBJ_CLASS: {
+      FREE(ObjClass, object);
+      break;
+    }
+    case OBJ_INSTANCE: {
+      ObjInstance* instance = (ObjInstance*)object;
+      // 释放属性哈希表
+      freeTable(&instance->fields);
+      // free对象本身
+      FREE(ObjInstance, object);
+      break;
+    }
   }
 }
 
@@ -194,6 +206,21 @@ static void blackenObject(Obj* object) {
       for (int i = 0; i < closure->upvalueCount; i++) {
         markObject((Obj*)closure->upvalues[i]);
       }
+      break;
+    }
+
+    // 标记类的名称（字符串对象）
+    case OBJ_CLASS: {
+      ObjClass* klass = (ObjClass*)object;
+      markObject((Obj*)klass->name);
+      break;
+    }
+
+    // 标记类的名称（字符串对象）
+    case OBJ_INSTANCE: {
+      ObjInstance* instance = (ObjInstance*)object;
+      markObject((Obj*)instance->klass);
+      markTable(&instance->fields);
       break;
     }
 

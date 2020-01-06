@@ -135,6 +135,14 @@ static bool call(ObjClosure* closure, int argCount) {
 static bool callValue(Value callee, int argCount) {
   if (IS_OBJ(callee)) {
     switch (OBJ_TYPE(callee)) {
+      // 如果调用的是一个类，则生成一个新的实例，并插入栈中
+      case OBJ_CLASS: {
+        ObjClass* klass = AS_CLASS(callee);
+        // 将多余的参数和类本身丢弃，然后将返回值push到栈中
+        vm.stackTop -= argCount + 1;
+        push(OBJ_VAL(newInstance(klass)));
+        return true;
+      }
       case OBJ_CLOSURE: {
         return call(AS_CLOSURE(callee), argCount);
         break;
@@ -472,6 +480,54 @@ static InterpretResult run() {
           }
         }
         
+        break;
+      }
+      case OP_CLASS: {
+        // 将类生成一个Class对象入栈
+        push(OBJ_VAL(newClass(READ_STRING())));
+        break;
+      }
+      case OP_GET_PROPERTY: {
+        // 判断是否在实例对象上进行读取属性操作
+        if (!IS_INSTANCE(peek(0))) {
+          runtimeError("Only instances have properties.");
+          return INTERPRET_RUNTIME_ERROR;
+        }
+
+        // 此时的实例在栈顶
+        ObjInstance* instance = AS_INSTANCE(peek(0));
+        // 属性名
+        ObjString* name = READ_STRING();
+
+        Value value;
+        if (tableGet(&instance->fields, name, &value)) {
+          pop(); // 将实例出栈（不再需要了）
+          push(value); // 将属性值入栈待使用
+          break;
+        }
+        // TOFIX: 暂时将读取未定义的属性视为一个runtimeError
+        runtimeError("Undefined property '%s'.", name->chars);
+        return INTERPRET_RUNTIME_ERROR;
+        break;
+      }
+      case OP_SET_PROPERTY: {
+        // 判断是否在实例对象上进行读取属性操作
+        if (!IS_INSTANCE(peek(1))) {
+          runtimeError("Only instances have properties.");
+          return INTERPRET_RUNTIME_ERROR;
+        }
+
+        // 此时的实例在栈顶后一位
+        ObjInstance* instance = AS_INSTANCE(peek(1));         
+        // 待赋值的参数在栈顶
+        tableSet(&instance->fields, READ_STRING(), peek(0));
+
+        // 将赋值的值取出
+        Value value = pop();
+        // 将实例出栈（不再需要了）
+        pop();
+        // 重新将赋值的值入栈待使用，例如：print obj.foo = "bar";
+        push(value);
         break;
       }
     }

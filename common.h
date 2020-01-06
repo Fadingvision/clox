@@ -8,7 +8,7 @@
 // 垃圾回收执行时机策略debug
 // #define DEBUG_STRESS_GC
 // 内存分配和回收打印debug
-#define DEBUG_LOG_GC
+// #define DEBUG_LOG_GC
 
 #define UINT8_COUNT (UINT8_MAX + 1)
 

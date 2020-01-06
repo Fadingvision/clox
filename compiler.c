@@ -539,11 +539,26 @@ static uint8_t argumentList() {
   return argCount;
 }
 
-
-
 static void call(bool canAssign) {
   uint8_t argCount = argumentList();
   emitBytes(OP_CALL, argCount);
+}
+
+// 属性读取
+static void dot(bool canAssign) {
+  consume(TOKEN_IDENTIFIER, "Expect property name after '.'.");
+  uint8_t name = identifierConstant(&parser.previous);
+
+  // canAssign 可以阻止这种非法表达式的解析: `a + b.c = 3`
+  if (canAssign && match(TOKEN_EQUAL)) {
+    // 解析等号右边表达式
+    expression();
+    // 属性赋值
+    emitBytes(OP_SET_PROPERTY, name);
+  } else {
+    // 属性读取
+    emitBytes(OP_GET_PROPERTY, name);
+  }
 }
 
 // -------------------- Pratt Parser -------------------------
@@ -565,7 +580,7 @@ ParseRule rules[] = {
   { NULL,     NULL,    PREC_NONE },       // TOKEN_DOT
 */
 //> Classes and Instances not-yet
-  { NULL,     NULL,     PREC_CALL },       // TOKEN_DOT
+  { NULL,     dot,     PREC_CALL },       // TOKEN_DOT
 //< Classes and Instances not-yet
   { unary,    binary,  PREC_TERM },       // TOKEN_MINUS
   { NULL,     binary,  PREC_TERM },       // TOKEN_PLUS
@@ -860,12 +875,27 @@ static void funDeclaration() {
   defineVariable(global);
 }
 
+// classDecl → "class" IDENTIFIER ( "<" IDENTIFIER )? "{" "static"? function* "}" ;
+static void classDeclaration() {
+  consume(TOKEN_IDENTIFIER, "Expect class name after class declaration.");
+  uint8_t nameConstant = identifierConstant(&parser.previous);
+  declareVariable();
+
+  emitBytes(OP_CLASS, nameConstant);
+  defineVariable(nameConstant);
+
+  consume(TOKEN_LEFT_BRACE, "Expect '{' before class body.");
+  consume(TOKEN_RIGHT_BRACE, "Expect '}' after class body.");
+}
+
 /* 
   declaration  → classDecl | funDecl | varDecl | statement ;
 */
 static void declaration() {
   if (match(TOKEN_VAR)) {
     varDeclaration();
+  } else if (match(TOKEN_CLASS)) {
+    classDeclaration();
   } else if (match(TOKEN_FUN)) {
     funDeclaration();
   } else {

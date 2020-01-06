@@ -69,6 +69,19 @@ ObjNative* newNative(NativeFn function) {
   return native;
 }
 
+ObjClass* newClass(ObjString* name) {
+  ObjClass* klass = ALLOCATE_OBJ(ObjClass, OBJ_CLASS);
+  klass->name = name;
+  return klass;
+}
+
+ObjInstance* newInstance(ObjClass* klass) {
+  ObjInstance* instance = ALLOCATE_OBJ(ObjInstance, OBJ_INSTANCE);
+  instance->klass = klass;
+  initTable(&instance->fields);
+  return instance;
+}
+
 // 字符串hash方法
 static uint32_t hashString(const char* key, int length) {
   uint32_t hash = 2166136261u;
@@ -179,6 +192,12 @@ void printObject(Value value) {
     break;
   case OBJ_NATIVE:
     printf("<native fn>");
+    break;
+  case OBJ_CLASS:
+    printf("%s", AS_CLASS(value)->name->chars);
+    break;
+  case OBJ_INSTANCE:
+    printf("%s instance", AS_INSTANCE(value)->klass->name->chars);
     break;
   default:
     break;
