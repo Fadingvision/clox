@@ -51,9 +51,9 @@ fun fib(n) {
 }
 
 // 计算35的斐波那契数列需要的时间(s)，macbook pro(2018)大约消耗：4.55s
-var start = clock();
-print fib(35);
-print clock() - start;
+// var start = clock();
+// print fib(35);
+// print clock() - start;
 
 // closures
 // function with closure
@@ -96,3 +96,20 @@ var pair = Pair();
 pair.first = 1;
 pair.second = 2;
 print pair.first + pair.second; // 3.
+
+// methods and initializer
+class CoffeeMaker {
+  init(coffee) {
+    this.coffee = coffee;
+  }
+
+  brew() {
+    print "Enjoy your cup of ";
+
+    // No reusing the grounds!
+    this.coffee = nil;
+  }
+}
+
+var maker = CoffeeMaker("coffee and chicory");
+maker.brew();

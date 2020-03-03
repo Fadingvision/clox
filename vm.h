@@ -45,6 +45,8 @@ typedef struct {
   ObjUpvalue* openUpvalues;
   // 用于存储用户所定义的字符串
   Table strings;
+  // 用于类的构造函数的名称的常量
+  ObjString* initString;
   // 全局变量
   Table globals;
 

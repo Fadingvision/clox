@@ -57,6 +57,8 @@ typedef struct {
 
 typedef enum {
   TYPE_FUNCTION,
+  TYPE_METHOD,
+  TYPE_INITIALIZER,
   TYPE_SCRIPT
 } FunctionType;
 
@@ -78,6 +80,13 @@ typedef struct Compiler {
   int scopeDepth;
 } Compiler;
 
+typedef struct ClassCompiler {
+  // 由于我们允许在类中定义另一个类，因此这里存在父子的关系
+  struct ClassCompiler* enclosing;
+  // 类的名称
+  Token name;
+} ClassCompiler;
+
 // Parser 执行one-pass策略，一次循环中编译
 typedef struct {
   Token current;  // 下一个token
@@ -95,6 +104,9 @@ Parser parser;
 
 // compiler
 Compiler* current = NULL;
+
+// 用于记录当前正在编译的class类
+ClassCompiler* currentClass = NULL;
 
 static void initCompiler(Compiler* compiler, FunctionType type) {
   compiler->enclosing = current;
@@ -116,8 +128,15 @@ static void initCompiler(Compiler* compiler, FunctionType type) {
   Local* local = &current->locals[current->localCount++];
   local->depth = 0;
   local->isCaptured = false;
-  local->name.start = "";
-  local->name.length = 0;
+
+  // 如果不是function类型，则将第一个变量设为this
+  if (type != TYPE_FUNCTION) {
+    local->name.start = "this";
+    local->name.length = 4;
+  } else {
+    local->name.start = "";
+    local->name.length = 0;
+  }
 }
 
 static Chunk* currentChunk() {
@@ -246,8 +265,13 @@ static void emitLoop(int loopStart) {
 
 // return 指令
 static void emitReturn() {
-  // 手动触发return指令时，需要返回一个默认值：nil
-  emitByte(OP_NIL);
+  // 如果是init函数，则需要返回类的实例（此时刚好在locals中的0位置）
+  if (current->type == TYPE_INITIALIZER) {
+    emitBytes(OP_GET_LOCAL, 0);
+  } else {
+    // 手动触发return指令时，需要返回一个默认值：nil
+    emitByte(OP_NIL);
+  }
   emitByte(OP_RETURN);
 }
 
@@ -561,6 +585,11 @@ static void dot(bool canAssign) {
   }
 }
 
+// preserve `this` for c++
+static void this_(bool canAssign) {
+  variable(false);
+}
+
 // -------------------- Pratt Parser -------------------------
 
 // 每种类型对应的解析规则表：
@@ -662,7 +691,7 @@ ParseRule rules[] = {
   { NULL,     NULL,    PREC_NONE },       // TOKEN_THIS
 */
 //> Methods and Initializers not-yet
-  { NULL,    NULL,    PREC_NONE },       // TOKEN_THIS
+  { this_,    NULL,    PREC_NONE },       // TOKEN_THIS
 //< Methods and Initializers not-yet
 /* Compiling Expressions rules < Types of Values table-true
   { NULL,     NULL,    PREC_NONE },       // TOKEN_TRUE
@@ -883,7 +912,13 @@ static void method() {
   consume(TOKEN_IDENTIFIER, "Expect method name");
   uint8_t constant = identifierConstant(&parser.previous);
 
-  FunctionType type = TYPE_FUNCTION;
+  FunctionType type = TYPE_METHOD;
+
+  // init函数特殊类型
+  if (parser.previous.length == 4 && memcmp(parser.previous.start, "init", 4) == 0) {
+    type = TYPE_INITIALIZER;
+  }
+
   function(type);
 
   // 将这个方法的名字的constantIndex作为操作数，方便vm读取
@@ -901,6 +936,12 @@ static void classDeclaration() {
   emitBytes(OP_CLASS, nameConstant);
   defineVariable(nameConstant);
 
+  // 修改当前的currentClass
+  ClassCompiler classCompiler;
+  classCompiler.name = parser.previous;
+  classCompiler.enclosing = currentClass;
+  currentClass = &classCompiler;
+
   // 由于defineVariable会将stack中的class pop出来放入global table中，
   // 但是由于以后的method指令需要知道它的方法绑定在哪一个类中
   // 因此需要将classname重新放入栈中，以便OP_METHOD指令查找
@@ -917,6 +958,9 @@ static void classDeclaration() {
 
   // 重新将class中栈中删除
   emitByte(OP_POP);
+
+  // 该类编译完之后，当前类自动变为上一级
+  currentClass = currentClass->enclosing;
 }
 
 /* 
@@ -1084,6 +1128,11 @@ static void returnStatement() {
   if (match(TOKEN_SEMICOLON)) {
     emitReturn();
   } else {
+    // 限制在init函数中使用return语句
+    if (current->type == TYPE_INITIALIZER) {
+      error("Iegal return statement from an initializer.");
+    }
+
     expression();
     consume(TOKEN_SEMICOLON, "Expect ';' after return statement.");
     emitByte(OP_RETURN);

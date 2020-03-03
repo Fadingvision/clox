@@ -138,9 +138,18 @@ static bool callValue(Value callee, int argCount) {
       // 如果调用的是一个类，则生成一个新的实例，并插入栈中
       case OBJ_CLASS: {
         ObjClass* klass = AS_CLASS(callee);
-        // 将多余的参数和类本身丢弃，然后将返回值push到栈中
-        vm.stackTop -= argCount + 1;
-        push(OBJ_VAL(newInstance(klass)));
+        // 将栈中的类替换为实例
+        vm.stackTop[-argCount - 1] = OBJ_VAL(newInstance(klass));
+        // 检查该类是否存在init方法，如果有则执行(此时的类的参数刚好在栈顶，则刚好被init使用)
+        Value initializer;
+        if (tableGet(&klass->methods, vm.initString, &initializer)) {
+          return call(AS_CLOSURE(initializer), argCount);
+        } else if (argCount != 0) {
+          // 如果没有init方法，则类不应接收参数
+          runtimeError("Expected 0 arguments but got %d.", argCount);
+          return false;
+        }
+
         return true;
       }
       case OBJ_CLOSURE: {
@@ -158,6 +167,8 @@ static bool callValue(Value callee, int argCount) {
       }
       case OBJ_BOUND_METHOD: {
         ObjBoundMethod* bound = AS_BOUND_METHOD(callee);
+        // 由于this的查找位置被置为了compiler的第一个位置，因此需要stack该位置的值设为this的值也就是类的实例
+        vm.stackTop[-argCount - 1] = bound->receiver;
         return call(bound->method, argCount);
       }
       default:
@@ -247,13 +258,14 @@ static void defineMethod(ObjString* name) {
 static bool bindMethod(ObjClass* klass, ObjString* name) {
   Value method;
   if (!tableGet(&klass->methods, name, &method)) {
+    runtimeError("Undefined property '%s'.", name->chars);
     return false;
   }
 
   // 如果在类中找到该方法，将其与实例进行绑定组成boundMethod
-  ObjBoundMethod* boundMethod = newBoundMethod(peek(0), AS_CLOSURE(method));
+  ObjBoundMethod* bound = newBoundMethod(peek(0), AS_CLOSURE(method));
   pop(); // 将实例出栈（不再需要了）
-  push(OBJ_VAL(boundMethod));
+  push(OBJ_VAL(bound));
   return true;
 }
 
@@ -588,6 +600,9 @@ void initVM() {
   initTable(&vm.strings);
   initTable(&vm.globals);
 
+  // 由于我们的所有字符串都是持久化了的，所以这里也把init持久化
+  vm.initString = copyString("init", 4);
+
   // 在初始化vm的时候，注入我们的内置函数
   defineNative("clock", clockNative);
 }
@@ -595,6 +610,7 @@ void initVM() {
 void freeVM() {
   freeTable(&vm.strings);
   freeTable(&vm.globals);
+  vm.initString = NULL;
   freeObjects();
 }
 

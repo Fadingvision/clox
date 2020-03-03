@@ -173,6 +173,8 @@ static void markRoots() {
   // 编译期间产生的函数对象也为根对象
   markCompilerRoots();
 
+  markObject((Obj*)vm.initString);
+
   // 哪些对象可能会被回收呢：
   // 1. 在堆中未被引用的闭包对象（closed）.
   // 2. 临时使用的字符串对象例如： var a = "hello" + "world";
