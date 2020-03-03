@@ -16,6 +16,7 @@
 #define IS_NATIVE(value)    isObjType(value, OBJ_NATIVE)
 #define IS_CLASS(value)     isObjType(value, OBJ_CLASS)
 #define IS_INSTANCE(value)  isObjType(value, OBJ_INSTANCE)
+#define IS_BOUND_METHOD(value)  isObjType(value, OBJ_BOUND_METHOD)
 
 // 对Obj进行断言得到ObjString
 #define AS_STRING(value)        ((ObjString*)AS_OBJ(value))
@@ -31,6 +32,8 @@
 #define AS_CLASS(value)         ((ObjClass*)AS_OBJ(value))
 // 实例
 #define AS_INSTANCE(value)      ((ObjInstance*)AS_OBJ(value))
+// 类的方法
+#define AS_BOUND_METHOD(value)      ((ObjBoundMethod*)AS_OBJ(value))
 
 // 对象的类型
 typedef enum {
@@ -41,6 +44,7 @@ typedef enum {
   OBJ_NATIVE,
   OBJ_CLASS,
   OBJ_INSTANCE,
+  OBJ_BOUND_METHOD,
 } ObjType;
 
 // 相当于对象的base class，每个obj都有一个类型
@@ -95,11 +99,12 @@ typedef struct {
   NativeFn function;
 } ObjNative;
 
-
 typedef struct sObjClass {
   Obj obj;
-  // 函数名
+  // 类名
   ObjString* name;
+  // 类的方法
+  Table methods;
 } ObjClass;
 
 // 类的实例
@@ -110,6 +115,16 @@ typedef struct {
   // 类的属性
   Table fields;
 } ObjInstance;
+
+
+// 由于单纯的method执行的时候并不知道this的指向，
+// 因此我们需要一个新的对象用来保存函数以及其指向receiver
+typedef struct {
+  Obj obj;
+  // receiver实际应该是ObjInstance, 为了避免反复断言，这里直接用Value
+  Value receiver;
+  ObjClosure* method;
+} ObjBoundMethod;
 
 // 子类：字符串对象
 /*
@@ -157,6 +172,8 @@ ObjUpvalue* newUpvalue(Value* slot);
 ObjClass* newClass(ObjString* name);
 // 初始化新的实例对象
 ObjInstance* newInstance(ObjClass* klass);
+// 初始化一个新的绑定方法
+ObjBoundMethod* newBoundMethod(Value receiver, ObjClosure* method);
 
 void printObject(Value value);
 

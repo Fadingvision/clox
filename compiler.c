@@ -878,17 +878,45 @@ static void funDeclaration() {
   defineVariable(global);
 }
 
+// function → IDENTIFIER "(" parameters? ")" block ;
+static void method() {
+  consume(TOKEN_IDENTIFIER, "Expect method name");
+  uint8_t constant = identifierConstant(&parser.previous);
+
+  FunctionType type = TYPE_FUNCTION;
+  function(type);
+
+  // 将这个方法的名字的constantIndex作为操作数，方便vm读取
+  emitBytes(OP_METHOD, constant);
+}
+
 // classDecl → "class" IDENTIFIER ( "<" IDENTIFIER )? "{" "static"? function* "}" ;
 static void classDeclaration() {
   consume(TOKEN_IDENTIFIER, "Expect class name after class declaration.");
+  Token className = parser.previous;
+
   uint8_t nameConstant = identifierConstant(&parser.previous);
   declareVariable();
 
   emitBytes(OP_CLASS, nameConstant);
   defineVariable(nameConstant);
 
+  // 由于defineVariable会将stack中的class pop出来放入global table中，
+  // 但是由于以后的method指令需要知道它的方法绑定在哪一个类中
+  // 因此需要将classname重新放入栈中，以便OP_METHOD指令查找
+  namedVariable(className, false);
+
   consume(TOKEN_LEFT_BRACE, "Expect '{' before class body.");
+
+  // class内容
+  while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
+    method();
+  }
+
   consume(TOKEN_RIGHT_BRACE, "Expect '}' after class body.");
+
+  // 重新将class中栈中删除
+  emitByte(OP_POP);
 }
 
 /* 

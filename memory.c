@@ -78,6 +78,8 @@ void freeObject(Obj* object) {
       break;
     }
     case OBJ_CLASS: {
+      ObjClass* klass = (ObjClass*)object;
+      freeTable(&klass->methods);
       FREE(ObjClass, object);
       break;
     }
@@ -87,6 +89,11 @@ void freeObject(Obj* object) {
       freeTable(&instance->fields);
       // free对象本身
       FREE(ObjInstance, object);
+      break;
+    }
+    case OBJ_BOUND_METHOD: {
+      // free对象本身
+      FREE(ObjBoundMethod, object);
       break;
     }
   }
@@ -213,14 +220,23 @@ static void blackenObject(Obj* object) {
     case OBJ_CLASS: {
       ObjClass* klass = (ObjClass*)object;
       markObject((Obj*)klass->name);
+      markTable(&klass->methods);
       break;
     }
 
-    // 标记类的名称（字符串对象）
+    // 标记类的实例
     case OBJ_INSTANCE: {
       ObjInstance* instance = (ObjInstance*)object;
       markObject((Obj*)instance->klass);
       markTable(&instance->fields);
+      break;
+    }
+
+    // 标记绑定方法
+    case OBJ_BOUND_METHOD: {
+      ObjBoundMethod* bound = (ObjBoundMethod*)object;
+      markValue(bound->receiver);
+      markObject((Obj*)bound->method);
       break;
     }
 

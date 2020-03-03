@@ -72,6 +72,8 @@ ObjNative* newNative(NativeFn function) {
 ObjClass* newClass(ObjString* name) {
   ObjClass* klass = ALLOCATE_OBJ(ObjClass, OBJ_CLASS);
   klass->name = name;
+  // 初始化一个HashTable用来存放methods
+  initTable(&klass->methods);
   return klass;
 }
 
@@ -80,6 +82,14 @@ ObjInstance* newInstance(ObjClass* klass) {
   instance->klass = klass;
   initTable(&instance->fields);
   return instance;
+}
+
+ObjBoundMethod* newBoundMethod(Value receiver, ObjClosure* method) {
+  ObjBoundMethod* bound = ALLOCATE_OBJ(ObjBoundMethod,
+                                       OBJ_BOUND_METHOD);
+  bound->receiver = receiver;
+  bound->method = method;
+  return bound;
 }
 
 // 字符串hash方法
@@ -198,6 +208,10 @@ void printObject(Value value) {
     break;
   case OBJ_INSTANCE:
     printf("%s instance", AS_INSTANCE(value)->klass->name->chars);
+    break;
+  case OBJ_BOUND_METHOD:
+    // 在用户的角度，绑定方法和普通函数是一样的
+    printFunction(AS_BOUND_METHOD(value)->method->function);
     break;
   default:
     break;

@@ -156,6 +156,10 @@ static bool callValue(Value callee, int argCount) {
         push(result);
         return true;
       }
+      case OBJ_BOUND_METHOD: {
+        ObjBoundMethod* bound = AS_BOUND_METHOD(callee);
+        return call(bound->method, argCount);
+      }
       default:
         break;
     }
@@ -227,6 +231,30 @@ static void closeUpvalues(Value* last) {
       upvalue->location = &upvalue->closed;
       vm.openUpvalues = upvalue->next;
     }
+}
+
+static void defineMethod(ObjString* name) {
+  // 当执行到OP_METHOD的时候，栈顶必然是一个由OP_CLOSURE生成的函数
+  Value method = peek(0);
+  // 栈顶上面就是我们的OP_CLASS生成的class对象
+  ObjClass* klass = AS_CLASS(peek(1));
+
+  // 将其保存在class对象的methods表中，然后从栈中删除该函数
+  tableSet(&klass->methods, name, method);
+  pop();
+}
+
+static bool bindMethod(ObjClass* klass, ObjString* name) {
+  Value method;
+  if (!tableGet(&klass->methods, name, &method)) {
+    return false;
+  }
+
+  // 如果在类中找到该方法，将其与实例进行绑定组成boundMethod
+  ObjBoundMethod* boundMethod = newBoundMethod(peek(0), AS_CLOSURE(method));
+  pop(); // 将实例出栈（不再需要了）
+  push(OBJ_VAL(boundMethod));
+  return true;
 }
 
 static InterpretResult run() {
@@ -487,6 +515,10 @@ static InterpretResult run() {
         push(OBJ_VAL(newClass(READ_STRING())));
         break;
       }
+      case OP_METHOD: {
+        defineMethod(READ_STRING());
+        break;
+      }
       case OP_GET_PROPERTY: {
         // 判断是否在实例对象上进行读取属性操作
         if (!IS_INSTANCE(peek(0))) {
@@ -505,9 +537,13 @@ static InterpretResult run() {
           push(value); // 将属性值入栈待使用
           break;
         }
-        // TOFIX: 暂时将读取未定义的属性视为一个runtimeError
-        runtimeError("Undefined property '%s'.", name->chars);
-        return INTERPRET_RUNTIME_ERROR;
+
+        // 在methods中寻找, 如果没找到，直接报
+        if (!bindMethod(instance->klass, name)) {
+          // TOFIX: 暂时将读取未定义的属性视为一个runtimeError
+          runtimeError("Undefined property '%s'.", name->chars);
+          return INTERPRET_RUNTIME_ERROR;
+        }
         break;
       }
       case OP_SET_PROPERTY: {
