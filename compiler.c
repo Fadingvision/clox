@@ -579,6 +579,15 @@ static void dot(bool canAssign) {
     expression();
     // 属性赋值
     emitBytes(OP_SET_PROPERTY, name);
+  } else if (match(TOKEN_LEFT_PAREN)) {
+    /* 
+      传统的调用分为两步：1. OP_GET_PROPERTY从实例中取出方法 2. 用OP_CALL调用该方法
+      这里做一个字节码常用的优化策略：将两个指令合为一个指令OP_INVOKE.
+      在大规模的调用下：可以提升7-8倍的速度
+    */
+    uint8_t argCount = argumentList();
+    emitBytes(OP_INVOKE, name);
+    emitByte(argCount);
   } else {
     // 属性读取
     emitBytes(OP_GET_PROPERTY, name);

@@ -180,6 +180,38 @@ static bool callValue(Value callee, int argCount) {
   return false;
 }
 
+// 直接从类中找到该方法，然后调用
+static bool invokeFromClass(ObjClass* klass, ObjString* name, int argCount) {
+  Value method;
+  if (!tableGet(&klass->methods, name, &method)) {
+    runtimeError("Undefined property '%s'.", name->chars);
+    return false;
+  }
+
+  return call(AS_CLOSURE(method), argCount);
+}
+
+static bool invoke(ObjString* name, int argCount) {
+  // 此时的栈顶应该是[instance, ...arguments];
+  Value receiver = peek(argCount);
+
+  if (!IS_INSTANCE(receiver)) {
+    runtimeError("Only instances have methods.");
+    return false;
+  }
+
+  ObjInstance* instance = AS_INSTANCE(receiver);
+
+  // 先在fields上寻找
+  Value value;
+  if (tableGet(&instance->fields, name, &value)) {
+    vm.stackTop[-argCount - 1] = value;
+    return callValue(value, argCount);
+  }
+
+  return invokeFromClass(instance->klass, name, argCount);
+}
+
 // 新建一个ObjUpvalue*
 static ObjUpvalue* captureUpvalue(Value* local) {
   /* 
@@ -529,6 +561,21 @@ static InterpretResult run() {
       }
       case OP_METHOD: {
         defineMethod(READ_STRING());
+        break;
+      }
+      case OP_INVOKE: {
+        ObjString* method = READ_STRING();
+        int argCount = READ_BYTE();
+        if (!invoke(method, argCount)) {
+          return INTERPRET_RUNTIME_ERROR;
+        }
+
+        // 保存当前函数的ip位置
+        frame->ip = ip;
+        // 将frame替换成当前需要执行的callee的调用帧，下次循环的时候就进入了函数的真正执行
+        frame = &vm.frames[vm.frameCount - 1];
+        // 将ip指向新的函数调用的ip地址
+        ip = frame->ip;
         break;
       }
       case OP_GET_PROPERTY: {

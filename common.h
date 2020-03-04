@@ -2,7 +2,7 @@
 #define clox_common_h
 
 // vm执行字节码debug
-// #define DEBUG_TRACE_EXECUTION
+#define DEBUG_TRACE_EXECUTION
 // 编译字节码debug
 #define DEBUG_PRINT_CODE
 // 垃圾回收执行时机策略debug
