@@ -277,15 +277,15 @@ static void emitReturn() {
 
 // 写一个Value struct到chunk的constants数组中，返回index
 static uint8_t makeConstant(Value value) {
-  // 如果已经存在相同的string Constant，则直接复用
-  Chunk* ck = currentChunk();
-  if (IS_STRING(value)) {
-    for (int i = 0; i < ck->count; i++) {
-      if (isEuqal(value, ck->constants.values[i])) {
-        return i;
-      }
-    }
-  }
+  // TOFIX: 优化： 如果已经存在相同的string Constant，则直接复用
+  // Chunk* ck = currentChunk();
+  // if (IS_STRING(value)) {
+  //   for (int i = 0; i < ck->count; i++) {
+  //     if (isEuqal(value, ck->constants.values[i])) {
+  //       return i;
+  //     }
+  //   }
+  // }
   int constant = addConstant(currentChunk(), value);
   if (constant > UINT8_MAX) {
     error("Too many constants in one chunk.");
@@ -587,6 +587,10 @@ static void dot(bool canAssign) {
 
 // preserve `this` for c++
 static void this_(bool canAssign) {
+  if (currentClass == NULL) {
+    error("Cannot use 'this' outside of a class.");
+    return;
+  }
   variable(false);
 }
 
