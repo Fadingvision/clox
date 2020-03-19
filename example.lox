@@ -117,3 +117,24 @@ class CoffeeMaker {
 var coffeemaker = CoffeeMaker("coffee and chicory");
 coffeemaker.f();
 coffeemaker.brew();
+
+// superclasses
+class Doughnut {
+  cook() {
+    print "Dunk in the fryer.";
+    this.finish();
+  }
+
+  finish(ingredient) {
+    print this;
+    print "Finish with " + ingredient;
+  }
+}
+
+class Cruller < Doughnut {
+  finish() {
+    super.finish("icing");
+  }
+}
+
+Cruller().finish();

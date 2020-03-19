@@ -605,6 +605,14 @@ static void this_(bool canAssign) {
   variable(false);
 }
 
+// 根据字符串手动合成一个Token
+static Token syntheticToken(const char* text) {
+  Token token;                                 
+  token.start = text;                          
+  token.length = (int)strlen(text);            
+  return token;                                
+}
+
 // preserve `super` for c++
 static void super_(bool canAssign) {
   if (currentClass == NULL) {                                  
@@ -615,8 +623,12 @@ static void super_(bool canAssign) {
 
   consume(TOKEN_DOT, "Expect '.' after 'super'.");
   consume(TOKEN_IDENTIFIER, "Expect superclass method name.");
+  // 方法名
   uint8_t name = identifierConstant(&parser.previous);
 
+  // 这里每次执行super指令之前，都要去生成两个OP_GET指令，
+  // 来将this(子类实例), super(父类)变量依次放入栈中以便OP_GET_SUPER使用
+  // 有了super才能找到对应的执行方法, 而该方法必须绑定在this上执行。
   namedVariable(syntheticToken("this"), false);
   namedVariable(syntheticToken("super"), false);
 
@@ -958,14 +970,6 @@ static void method() {
   emitBytes(OP_METHOD, constant);
 }
 
-// 根据字符串手动合成一个Token
-static Token syntheticToken(const char* text) {
-  Token token;                                 
-  token.start = text;                          
-  token.length = (int)strlen(text);            
-  return token;                                
-}
-
 // classDecl → "class" IDENTIFIER ( "<" IDENTIFIER )? "{" "static"? function* "}" ;
 static void classDeclaration() {
   consume(TOKEN_IDENTIFIER, "Expect class name after class declaration.");
@@ -980,13 +984,13 @@ static void classDeclaration() {
   // 修改当前的currentClass
   ClassCompiler classCompiler;
   classCompiler.name = parser.previous;
-  classCompiler.hasSuperClass = false;
+  classCompiler.hasSuperclass = false;
   classCompiler.enclosing = currentClass;
   currentClass = &classCompiler;
 
   if (match(TOKEN_LESS)) {
     consume(TOKEN_IDENTIFIER, "Expect superclass name.");
-    // 生成获取父类的指令
+    // 生成获取父类的指令, 将其放入栈中待OP_INHERIT使用
     variable(false);
 
     // 类不能继承自身
@@ -994,11 +998,13 @@ static void classDeclaration() {
       error("A class cannot inherit from itself.");      
     }
 
+    // 新建一个作用域，以免两个类的super冲突
     beginScope();
+    // 将super变量加入变量locals数组中
     addLocal(syntheticToken("super"));
     defineVariable(0);
 
-    // 生成子类的指令
+    // 生成获取父类的指令, 将其放入栈中待OP_INHERIT使用
     namedVariable(className, false);
     emitByte(OP_INHERIT);
 

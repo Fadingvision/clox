@@ -562,7 +562,7 @@ static InterpretResult run() {
       case OP_INHERIT: {
         Value superClass = peek(1);
 
-        if (!IS_CLASS(superclass)) {
+        if (!IS_CLASS(superClass)) {
           runtimeError("Superclass must be a class.");
           return INTERPRET_RUNTIME_ERROR;
         }
@@ -572,14 +572,15 @@ static InterpretResult run() {
         // 但是这里需要注意的是这种实现方式`不支持` monkey patching, 也就是动态的修改类方法，
         // 因为父类的方法在继承的那一刻就确定了，后面动态修改的方法不会由子类继承
         tableAddAll(&AS_CLASS(superClass)->methods, &subClass->methods);
-        pop(); // 删除子类
+        pop(); // 删除子类, 此时父类在栈顶会被当做闭包变量super持久化， 见`endScope`方法
         break;
       }
       case OP_GET_SUPER: {
         // 读取方法名
         ObjString* name = READ_STRING();
-        // 读取父类
+        // 从栈顶读取父类并出栈
         ObjClass* superclass = AS_CLASS(pop());
+        // 找到该方法并将其绑定在栈顶的实例上，然后入栈供下一步调用
         if (!bindMethod(superclass, name)) {
           return INTERPRET_RUNTIME_ERROR;
         }
