@@ -85,6 +85,8 @@ typedef struct ClassCompiler {
   struct ClassCompiler* enclosing;
   // 类的名称
   Token name;
+  // 是否有父类
+  bool hasSuperclass;
 } ClassCompiler;
 
 // Parser 执行one-pass策略，一次循环中编译
@@ -603,6 +605,24 @@ static void this_(bool canAssign) {
   variable(false);
 }
 
+// preserve `super` for c++
+static void super_(bool canAssign) {
+  if (currentClass == NULL) {                                  
+    error("Cannot use 'super' outside of a class.");           
+  } else if (!currentClass->hasSuperclass) {                   
+    error("Cannot use 'super' in a class with no superclass.");
+  }
+
+  consume(TOKEN_DOT, "Expect '.' after 'super'.");
+  consume(TOKEN_IDENTIFIER, "Expect superclass method name.");
+  uint8_t name = identifierConstant(&parser.previous);
+
+  namedVariable(syntheticToken("this"), false);
+  namedVariable(syntheticToken("super"), false);
+
+  emitBytes(OP_GET_SUPER, name);
+}
+
 // -------------------- Pratt Parser -------------------------
 
 // 每种类型对应的解析规则表：
@@ -698,7 +718,7 @@ ParseRule rules[] = {
   { NULL,     NULL,    PREC_NONE },       // TOKEN_SUPER
 */
 //> Superclasses not-yet
-  { NULL,   NULL,    PREC_NONE },       // TOKEN_SUPER
+  { super_,   NULL,    PREC_NONE },       // TOKEN_SUPER
 //< Superclasses not-yet
 /* Compiling Expressions rules < Methods and Initializers not-yet
   { NULL,     NULL,    PREC_NONE },       // TOKEN_THIS
@@ -938,6 +958,14 @@ static void method() {
   emitBytes(OP_METHOD, constant);
 }
 
+// 根据字符串手动合成一个Token
+static Token syntheticToken(const char* text) {
+  Token token;                                 
+  token.start = text;                          
+  token.length = (int)strlen(text);            
+  return token;                                
+}
+
 // classDecl → "class" IDENTIFIER ( "<" IDENTIFIER )? "{" "static"? function* "}" ;
 static void classDeclaration() {
   consume(TOKEN_IDENTIFIER, "Expect class name after class declaration.");
@@ -952,8 +980,30 @@ static void classDeclaration() {
   // 修改当前的currentClass
   ClassCompiler classCompiler;
   classCompiler.name = parser.previous;
+  classCompiler.hasSuperClass = false;
   classCompiler.enclosing = currentClass;
   currentClass = &classCompiler;
+
+  if (match(TOKEN_LESS)) {
+    consume(TOKEN_IDENTIFIER, "Expect superclass name.");
+    // 生成获取父类的指令
+    variable(false);
+
+    // 类不能继承自身
+    if (isIdentifierEqual(&className, &parser.previous)) {
+      error("A class cannot inherit from itself.");      
+    }
+
+    beginScope();
+    addLocal(syntheticToken("super"));
+    defineVariable(0);
+
+    // 生成子类的指令
+    namedVariable(className, false);
+    emitByte(OP_INHERIT);
+
+    classCompiler.hasSuperclass = true;
+  }
 
   // 由于defineVariable会将stack中的class pop出来放入global table中，
   // 但是由于以后的method指令需要知道它的方法绑定在哪一个类中
@@ -971,6 +1021,10 @@ static void classDeclaration() {
 
   // 重新将class中栈中删除
   emitByte(OP_POP);
+
+  if (classCompiler.hasSuperclass) {
+    endScope();                          
+  }
 
   // 该类编译完之后，当前类自动变为上一级
   currentClass = currentClass->enclosing;

@@ -559,6 +559,32 @@ static InterpretResult run() {
         push(OBJ_VAL(newClass(READ_STRING())));
         break;
       }
+      case OP_INHERIT: {
+        Value superClass = peek(1);
+
+        if (!IS_CLASS(superclass)) {
+          runtimeError("Superclass must be a class.");
+          return INTERPRET_RUNTIME_ERROR;
+        }
+
+        ObjClass* subClass = AS_CLASS(peek(0));
+        // 这里直接将所有父类的方法复制到子类的方法表中去，这样就实现了继承(copy-down inheritance)
+        // 但是这里需要注意的是这种实现方式`不支持` monkey patching, 也就是动态的修改类方法，
+        // 因为父类的方法在继承的那一刻就确定了，后面动态修改的方法不会由子类继承
+        tableAddAll(&AS_CLASS(superClass)->methods, &subClass->methods);
+        pop(); // 删除子类
+        break;
+      }
+      case OP_GET_SUPER: {
+        // 读取方法名
+        ObjString* name = READ_STRING();
+        // 读取父类
+        ObjClass* superclass = AS_CLASS(pop());
+        if (!bindMethod(superclass, name)) {
+          return INTERPRET_RUNTIME_ERROR;
+        }
+        break;
+      }
       case OP_METHOD: {
         defineMethod(READ_STRING());
         break;
