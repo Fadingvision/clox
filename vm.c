@@ -605,6 +605,25 @@ static InterpretResult run() {
         ip = frame->ip;
         break;
       }
+      case OP_SUPER_INVOKE: {
+        // OP_SUPER_INVOKE有两个操作数，一个为方法名，一个为参数的个数
+        ObjString* method = READ_STRING();
+        int argCount = READ_BYTE();
+
+        // 从栈顶读取父类并出栈
+        ObjClass* superClass = AS_CLASS(pop());
+        // 这里不再生成一个绑定方法，而是直接调用该方法
+        if (!invokeFromClass(superClass, method, argCount)) {
+          return INTERPRET_RUNTIME_ERROR;
+        }
+        // 保存当前函数的ip位置
+        frame->ip = ip;
+        // 将frame替换成当前需要执行的callee的调用帧，下次循环的时候就进入了函数的真正执行
+        frame = &vm.frames[vm.frameCount - 1];
+        // 将ip指向新的函数调用的ip地址
+        ip = frame->ip;
+        break;
+      }
       case OP_GET_PROPERTY: {
         // 判断是否在实例对象上进行读取属性操作
         if (!IS_INSTANCE(peek(0))) {

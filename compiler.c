@@ -630,9 +630,17 @@ static void super_(bool canAssign) {
   // 来将this(子类实例), super(父类)变量依次放入栈中以便OP_GET_SUPER使用
   // 有了super才能找到对应的执行方法, 而该方法必须绑定在this上执行。
   namedVariable(syntheticToken("this"), false);
-  namedVariable(syntheticToken("super"), false);
 
-  emitBytes(OP_GET_SUPER, name);
+  // 这里用一个常用的优化策略，将两个连续的指令合成一个指令OP_SUPER_INVOKE
+  if (match(TOKEN_LEFT_PAREN)) {
+    uint8_t argCount = argumentList();
+    namedVariable(syntheticToken("super"), false);
+    emitBytes(OP_SUPER_INVOKE, name);
+    emitByte(argCount);
+  } else {
+    namedVariable(syntheticToken("super"), false);
+    emitBytes(OP_GET_SUPER, name);
+  }
 }
 
 // -------------------- Pratt Parser -------------------------

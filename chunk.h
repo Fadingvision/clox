@@ -7,7 +7,7 @@
 typedef enum {
   // op-constant
   OP_CONSTANT,
-  OP_CONSTANT_LONG,
+  // OP_CONSTANT_LONG,
   // Types of Values literal-ops
   OP_NIL,
   OP_TRUE,
@@ -57,6 +57,8 @@ typedef enum {
   OP_CALL,
   // Methods and Initializers not-yet
   OP_INVOKE,
+  // super invoke
+  OP_SUPER_INVOKE,
   // Superclasses not-yet
   OP_SUPER,
   // Closures closure-op

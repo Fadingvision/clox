@@ -101,8 +101,8 @@ int disassembleInstruction(Chunk* chunk, int offset) {
       return simpleInstruction("OP_NOT", offset);
     case OP_RETURN:
       return simpleInstruction("OP_RETURN", offset);
-    case OP_CONSTANT_LONG:
-      return constantLongInstruction("OP_CONSTANT_LONG", chunk, offset);
+    // case OP_CONSTANT_LONG:
+    //   return constantLongInstruction("OP_CONSTANT_LONG", chunk, offset);
     case OP_CONSTANT:
       return constantInstruction("OP_CONSTANT", chunk, offset);
     case OP_NIL:
@@ -139,6 +139,8 @@ int disassembleInstruction(Chunk* chunk, int offset) {
       return byteInstruction("OP_CALL", chunk, offset);
     case OP_INVOKE:
       return invokeInstruction("OP_INVOKE", chunk, offset);
+    case OP_SUPER_INVOKE:
+      return invokeInstruction("OP_SUPER_INVOKE", chunk, offset);
     case OP_CLOSURE: {
       // 打印函数
       offset++;

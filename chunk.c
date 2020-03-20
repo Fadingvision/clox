@@ -47,31 +47,31 @@ int addConstant(Chunk* chunk, Value value) {
   return chunk->constants.count - 1;
 }
 
-void writeConstant(Chunk* chunk, Value value, int line) {
-  writeValueArray(&chunk->constants, value);
-  int index = chunk->constants.count - 1;
-  if (index <= 255) {
-    writeChunk(chunk, OP_CONSTANT, line);
-    writeChunk(chunk, index, line);
-  } else {
-    writeChunk(chunk, OP_CONSTANT_LONG, line);
-    if (chunk->capacity < chunk->count + 3) {
-      int oldCapacity = chunk->capacity;
-      chunk->capacity = GROW_CAPACITY(oldCapacity); 
-      chunk->code = GROW_ARRAY(chunk->code, uint8_t,
-        oldCapacity, chunk->capacity);
-      chunk->lines = GROW_ARRAY(chunk->lines, int,
-        oldCapacity, chunk->capacity);
-    }
+// void writeConstant(Chunk* chunk, Value value, int line) {
+//   writeValueArray(&chunk->constants, value);
+//   int index = chunk->constants.count - 1;
+//   if (index <= 255) {
+//     writeChunk(chunk, OP_CONSTANT, line);
+//     writeChunk(chunk, index, line);
+//   } else {
+//     writeChunk(chunk, OP_CONSTANT_LONG, line);
+//     if (chunk->capacity < chunk->count + 3) {
+//       int oldCapacity = chunk->capacity;
+//       chunk->capacity = GROW_CAPACITY(oldCapacity); 
+//       chunk->code = GROW_ARRAY(chunk->code, uint8_t,
+//         oldCapacity, chunk->capacity);
+//       chunk->lines = GROW_ARRAY(chunk->lines, int,
+//         oldCapacity, chunk->capacity);
+//     }
 
-    // 在连续内存（count -> count + 2）上写入 256？
-    // chunk->code[chunk->count] = index;
-    chunk->code[chunk->count] = index & 0xff;
-    chunk->code[chunk->count + 1] = (index>>8)  & 0xff;
-    chunk->code[chunk->count + 2] = (index>>16)  & 0xff;
+//     // 在连续内存（count -> count + 2）上写入 256？
+//     // chunk->code[chunk->count] = index;
+//     chunk->code[chunk->count] = index & 0xff;
+//     chunk->code[chunk->count + 1] = (index>>8)  & 0xff;
+//     chunk->code[chunk->count + 2] = (index>>16)  & 0xff;
 
-    chunk->lines[chunk->count] = line;
-    chunk->count += 3;
-  }
-}
+//     chunk->lines[chunk->count] = line;
+//     chunk->count += 3;
+//   }
+// }
 
