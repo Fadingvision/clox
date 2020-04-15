@@ -50,12 +50,15 @@ void printValue(Value value) {
 }
 
 // 为什么不直接用内存比较：由于各个平台在存储Struct的时候内存偏移量不一致
-// 这里使用类型和值进行比较
 bool isEuqal(Value a, Value b) {
-  #ifdef NAN_BOXING            
-    if (IS_NUMBER(a) && IS_NUMBER(b)) return AS_NUMBER(a) == AS_NUMBER(b);        
-    return a == b;                     
+  #ifdef NAN_BOXING
+    // 这里为了实现IEEE754标准的NaN !== NaN; 也就是说即使两个底层相同的位的NaN数字也不能被视为相等。
+    // c中的double类型就实现了IEEE754, 我们需要将数字转为double类型进行对比既可
+    if (IS_NUMBER(a) && IS_NUMBER(b)) return AS_NUMBER(a) == AS_NUMBER(b);
+    // 由于我们的Value被表示成了uint64_t类型，所以只需要直接比较该值既可判断是否相等
+    return a == b;
   #else
+    // 这里使用类型和值进行比较
     if (a.type != b.type) return false;
     switch (a.type) {
       case VAL_BOOL:   return AS_BOOL(a) == AS_BOOL(b);

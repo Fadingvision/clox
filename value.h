@@ -28,6 +28,7 @@ typedef struct sObjString ObjString;
 
  */
 #ifdef NAN_BOXING
+  // quiet NANs: 0111111111110000....
   #define QNAN     ((uint64_t)0x7ffc000000000000)
   #define SIGN_BIT ((uint64_t)0x8000000000000000)
   #define TAG_NIL   1 // 01.                     
@@ -36,10 +37,14 @@ typedef struct sObjString ObjString;
 
   typedef uint64_t Value;
 
+  // Nil值为最低位为1，其他分数位为0
   #define NIL_VAL         ((Value)(uint64_t)(QNAN | TAG_NIL))
+  // false值为最低位为10，其他分数位为0
   #define FALSE_VAL       ((Value)(uint64_t)(QNAN | TAG_FALSE))
+  // false值为最低位为11，其他分数位为0
   #define TRUE_VAL        ((Value)(uint64_t)(QNAN | TAG_TRUE))
   #define BOOL_VAL(b)     ((b) ? TRUE_VAL : FALSE_VAL)
+  // 利用NaN的正负标记位设为1来表示是一个对象
   #define OBJ_VAL(obj) \
     (Value)(SIGN_BIT | QNAN | (uint64_t)(uintptr_t)(obj))
   #define NUMBER_VAL(num) numToValue(num)
@@ -56,6 +61,7 @@ typedef struct sObjString ObjString;
     return data.bits;
   }
 
+  // 利用位运算求出具体地址
   #define AS_OBJ(v)       ((Obj*)(uintptr_t)((v) & ~(SIGN_BIT | QNAN)))
   #define AS_BOOL(v)      ((v) == TRUE_VAL)
   #define AS_NUMBER(v)    valueToNum(v)
@@ -65,6 +71,7 @@ typedef struct sObjString ObjString;
     return data.num;                            
   }
 
+  // 用位运算来判断v的具体位数的值，从而判断他的类型
   #define IS_NUMBER(v)    (((v) & QNAN) != QNAN)
   #define IS_NIL(v)       ((v) == NIL_VAL)
   #define IS_BOOL(v)      (((v) & FALSE_VAL) == FALSE_VAL)
