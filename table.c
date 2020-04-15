@@ -24,8 +24,16 @@ void freeTable(Table* table) {
 // 找到key所在的位置，如果key不存在，找到一个僵尸位或者空位
 static Entry* findEntry(Entry* entries, int capacity,
                         ObjString* key) {
+
+  /* 
+    NOTE: 在实际的lox程序中涉及到大量的属性和方法读取，在我们的哈希表中就会有大量的取模操作，而这个操作会极大的影响性能。
+    如果我们的容量值为2的n次方时（因为每次扩张容量都是二倍数扩展），
+    一个简单的优化策略就是将取模操作转化为位操作：例如 229 % 64 === 229 & 63 === 37
+   */
+  
 	// hash值为较大的正数，用取模的值为数组的下标
-  uint32_t index = key->hash % capacity;
+  // uint32_t index = key->hash % capacity;
+  uint32_t index = key->hash & (capacity - 1);
   // 复用僵尸位
   Entry* tombstone = NULL;
   // 解决键值的冲突问题：
@@ -47,7 +55,7 @@ static Entry* findEntry(Entry* entries, int capacity,
       return entry;
     }
     // 如果为capcity的值，自动归0
-    index = (index + 1) % capacity;
+    index = (index + 1) & (capacity - 1);
   }
 }
 
@@ -116,7 +124,7 @@ ObjString* tableFindString(Table* table, const char* chars, int length,
                            uint32_t hash) {
   if (table->count == 0) return NULL;
 
-  uint32_t index = hash % table->capacity;
+  uint32_t index = hash & (table->capacity - 1);
 
   for (;;) {
     Entry* entry = &table->entries[index];
@@ -131,7 +139,7 @@ ObjString* tableFindString(Table* table, const char* chars, int length,
       return entry->key;
     }
 
-    index = (index + 1) % table->capacity;
+    index = (index + 1) & (table->capacity - 1);
   }
 }
 

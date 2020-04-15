@@ -29,25 +29,42 @@ void freeValueArray(ValueArray* array) {
 }
 
 void printValue(Value value) {
-  switch (value.type) {
-    case VAL_BOOL:   printf(AS_BOOL(value) ? "true" : "false"); break;
-    case VAL_NIL:    printf("nil"); break;
-    case VAL_NUMBER: printf("%f", AS_NUMBER(value)); break;
-    case VAL_OBJ:    printObject(value); break;
-  }
+  #ifdef NAN_BOXING                             
+    if (IS_BOOL(value)) {                       
+      printf(AS_BOOL(value) ? "true" : "false");
+    } else if (IS_NIL(value)) {                 
+      printf("nil");                            
+    } else if (IS_NUMBER(value)) {              
+      printf("%g", AS_NUMBER(value));           
+    } else if (IS_OBJ(value)) {                 
+      printObject(value);                       
+    }                                           
+  #else
+    switch (value.type) {
+      case VAL_BOOL:   printf(AS_BOOL(value) ? "true" : "false"); break;
+      case VAL_NIL:    printf("nil"); break;
+      case VAL_NUMBER: printf("%f", AS_NUMBER(value)); break;
+      case VAL_OBJ:    printObject(value); break;
+    }
+  #endif
 }
 
 // 为什么不直接用内存比较：由于各个平台在存储Struct的时候内存偏移量不一致
 // 这里使用类型和值进行比较
 bool isEuqal(Value a, Value b) {
-  if (a.type != b.type) return false;
-  switch (a.type) {
-    case VAL_BOOL:   return AS_BOOL(a) == AS_BOOL(b);
-    case VAL_NIL:    return true;
-    case VAL_NUMBER: return AS_NUMBER(a) == AS_NUMBER(b);
-    case VAL_OBJ: {
-      // 由于同一个字符串的对象被收集到对象池中，因此只要内存地址相同，则一定是同一个字符串
-      return AS_OBJ(a) == AS_OBJ(b);
+  #ifdef NAN_BOXING            
+    if (IS_NUMBER(a) && IS_NUMBER(b)) return AS_NUMBER(a) == AS_NUMBER(b);        
+    return a == b;                     
+  #else
+    if (a.type != b.type) return false;
+    switch (a.type) {
+      case VAL_BOOL:   return AS_BOOL(a) == AS_BOOL(b);
+      case VAL_NIL:    return true;
+      case VAL_NUMBER: return AS_NUMBER(a) == AS_NUMBER(b);
+      case VAL_OBJ: {
+        // 由于同一个字符串的对象被收集到对象池中，因此只要内存地址相同，则一定是同一个字符串
+        return AS_OBJ(a) == AS_OBJ(b);
+      }
     }
-  }
+  #endif
 }
